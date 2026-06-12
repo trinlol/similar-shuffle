@@ -46,37 +46,6 @@ spicetify apply
 3. While Better Shuffle is on, Spotify's built-in shuffle is greyed out and unclickable
 4. Open **Spicetify menu → Better Shuffle** to adjust settings
 
-## Development
-
-Requires [Spicetify CLI](https://spicetify.app/docs/getting-started).
-
-```bash
-npm install
-npm run build-local   # outputs to dist/better-shuffle.js
-npm run watch         # watch + output to local Spicetify Extensions folder (Windows)
-spicetify watch -e
-```
-
-Before publishing a release, rebuild marketplace assets:
-
-```bash
-npm run build:release
-npm run generate:preview
-```
-
-Commit `better-shuffle.js`, `preview-icon.png`, and `preview-banner.png` alongside source changes.
-
-## Publishing
-
-This extension is listed on the Spicetify Marketplace via GitHub discovery. To publish or update:
-
-1. Push to a **public** GitHub repository
-2. Add the [`spicetify-extensions`](https://github.com/topics/spicetify-extensions) topic in repo settings
-3. Ensure `manifest.json`, `preview-icon.png`, `better-shuffle.js`, and `README.md` are on the default branch
-4. Run `npm run build:release` and `npm run generate:preview`, then commit the built assets before each release
-
-See the [Publishing to Marketplace](https://github.com/spicetify/marketplace/wiki/Publishing-to-Marketplace) guide for full details.
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
