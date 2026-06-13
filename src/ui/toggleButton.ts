@@ -38,6 +38,14 @@ const injectStyles = () => {
       transition: color 0.25s ease;
     }
 
+    button[data-testid="${TEST_ID}"].${BUTTON_CLASS}[aria-checked="false"] {
+      color: rgba(var(--spice-rgb-text), 0.7) !important;
+    }
+
+    button[data-testid="${TEST_ID}"].${BUTTON_CLASS}[aria-checked="false"] svg {
+      filter: none !important;
+    }
+
     button[data-testid="${TEST_ID}"].${BUTTON_CLASS}[aria-checked="true"] {
       color: var(--spice-button) !important;
     }
@@ -143,10 +151,28 @@ const playClickAnimation = () => {
   buttonElement.addEventListener("animationend", handleAnimationEnd)
 }
 
+const stripActivePresentation = (button: HTMLButtonElement) => {
+  for (const className of Array.from(button.classList)) {
+    if (className.toLowerCase().includes("active")) {
+      button.classList.remove(className)
+    }
+  }
+
+  button.removeAttribute("data-active")
+
+  const svg = button.querySelector("svg")
+  svg?.style.removeProperty("filter")
+  svg?.style.removeProperty("color")
+}
+
 const setButtonActive = (active: boolean) => {
   if (!buttonElement) return
   buttonElement.setAttribute("aria-checked", active ? "true" : "false")
   buttonElement.classList.toggle("active", active)
+
+  if (!active) {
+    stripActivePresentation(buttonElement)
+  }
 }
 
 const placeButton = (): boolean => {
@@ -166,13 +192,7 @@ const createBetterShuffleButton = (shuffleReference: HTMLButtonElement): HTMLBut
   button.removeAttribute("aria-disabled")
   button.tabIndex = 0
 
-  // Remove any Spotify-specific active classes copied from the native button
-  const activeClasses = Array.from(button.classList).filter((c) =>
-    c.toLowerCase().includes("active")
-  )
-  for (const c of activeClasses) {
-    button.classList.remove(c)
-  }
+  stripActivePresentation(button)
 
   const svg = button.querySelector("svg")
   if (svg) {

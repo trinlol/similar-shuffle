@@ -1706,7 +1706,6 @@
   var buttonElement = null;
   var buttonTippy = null;
   var isBusy = false;
-  var pendingReshuffleClick = false;
   var placementObserver = null;
   var injectStyles2 = () => {
     if (document.getElementById(STYLE_ID)) return;
@@ -1721,6 +1720,14 @@
       opacity: 1 !important;
       visibility: visible !important;
       transition: color 0.25s ease;
+    }
+
+    button[data-testid="${TEST_ID}"].${BUTTON_CLASS}[aria-checked="false"] {
+      color: rgba(var(--spice-rgb-text), 0.7) !important;
+    }
+
+    button[data-testid="${TEST_ID}"].${BUTTON_CLASS}[aria-checked="false"] svg {
+      filter: none !important;
     }
 
     button[data-testid="${TEST_ID}"].${BUTTON_CLASS}[aria-checked="true"] {
@@ -1793,19 +1800,15 @@
       updateTooltip("Better Shuffle");
       return;
     }
-    if (pendingReshuffleClick) {
-      updateTooltip("Reshuffle queue");
-      return;
-    }
-    updateTooltip("Turn off Better Shuffle");
+    updateTooltip("Turn off Better Shuffle \xB7 Shift+click to reshuffle");
   };
   var handleMouseEnter = () => {
-    if (!buttonElement || !sessionManager.isToggleEnabled() || !pendingReshuffleClick) return;
+    if (!buttonElement || !sessionManager.isToggleEnabled()) return;
     buttonElement.setAttribute("data-hover-refresh", "true");
     applyButtonIcon("reload");
   };
   var handleMouseLeave = () => {
-    if (!buttonElement || !sessionManager.isToggleEnabled()) return;
+    if (!buttonElement) return;
     buttonElement.removeAttribute("data-hover-refresh");
     applyButtonIcon("default");
   };
@@ -1820,10 +1823,24 @@
     };
     buttonElement.addEventListener("animationend", handleAnimationEnd);
   };
+  var stripActivePresentation = (button) => {
+    for (const className of Array.from(button.classList)) {
+      if (className.toLowerCase().includes("active")) {
+        button.classList.remove(className);
+      }
+    }
+    button.removeAttribute("data-active");
+    const svg = button.querySelector("svg");
+    svg?.style.removeProperty("filter");
+    svg?.style.removeProperty("color");
+  };
   var setButtonActive = (active) => {
     if (!buttonElement) return;
     buttonElement.setAttribute("aria-checked", active ? "true" : "false");
     buttonElement.classList.toggle("active", active);
+    if (!active) {
+      stripActivePresentation(buttonElement);
+    }
   };
   var placeButton = () => {
     if (!buttonElement) return false;
@@ -1839,12 +1856,7 @@
     button.removeAttribute("data-better-shuffle-blocked");
     button.removeAttribute("aria-disabled");
     button.tabIndex = 0;
-    const activeClasses = Array.from(button.classList).filter(
-      (c) => c.toLowerCase().includes("active")
-    );
-    for (const c of activeClasses) {
-      button.classList.remove(c);
-    }
+    stripActivePresentation(button);
     const svg = button.querySelector("svg");
     if (svg) {
       applyEnhanceIcon(svg);
@@ -1852,7 +1864,7 @@
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      handleButtonClick();
+      handleButtonClick(event);
     });
     button.addEventListener("mouseenter", handleMouseEnter);
     button.addEventListener("mouseleave", handleMouseLeave);
@@ -1860,6 +1872,7 @@
   };
   var mountButton = () => {
     if (buttonElement && document.contains(buttonElement)) {
+      syncButtonFromSession();
       return placeButton();
     }
     const shuffleButton = findNativeShuffleButton();
@@ -1876,9 +1889,7 @@
         content: "Better Shuffle"
       });
     }
-    pendingReshuffleClick = sessionManager.isToggleEnabled();
-    setButtonActive(sessionManager.isToggleEnabled());
-    refreshTooltip();
+    syncButtonFromSession();
     console.info("[Better Shuffle] Playbar button mounted left of shuffle");
     return true;
   };
@@ -1889,6 +1900,7 @@
       return;
     }
     placeButton();
+    syncButtonFromSession();
   };
   var schedulePlacementWatch = () => {
     if (placementObserver) return;
@@ -1904,17 +1916,22 @@
     placementObserver = new MutationObserver(syncPlacement);
     placementObserver.observe(parent, { childList: true });
   };
-  var handleButtonClick = () => {
+  var syncButtonFromSession = () => {
+    const enabled = sessionManager.isToggleEnabled();
+    setButtonActive(enabled);
+    if (!enabled) {
+      buttonElement?.removeAttribute("data-hover-refresh");
+      applyButtonIcon("default");
+    }
+    refreshTooltip();
+  };
+  var handleButtonClick = (event) => {
     if (!buttonElement || isBusy) return;
     if (!sessionManager.isToggleEnabled()) {
       void enableBetterShuffle();
       return;
     }
-    if (pendingReshuffleClick) {
-      pendingReshuffleClick = false;
-      buttonElement.removeAttribute("data-hover-refresh");
-      applyButtonIcon("default");
-      refreshTooltip();
+    if (event.shiftKey) {
       void reshuffleActiveSession();
       return;
     }
@@ -1944,7 +1961,6 @@
     playClickAnimation();
     try {
       sessionManager.setToggleEnabled(true);
-      pendingReshuffleClick = true;
       enforceNativeShuffleOff();
       enableAutoplayGuard();
       updateNativeShuffleGuard();
@@ -1954,7 +1970,6 @@
       await reshuffleFromCurrentTrack();
     } catch (error) {
       console.error("[Better Shuffle]", error);
-      pendingReshuffleClick = false;
       setButtonActive(false);
       sessionManager.setToggleEnabled(false);
       disableAutoplayGuard();
@@ -1992,7 +2007,6 @@
     isBusy = true;
     playClickAnimation();
     try {
-      pendingReshuffleClick = false;
       sessionManager.setToggleEnabled(false);
       disableAutoplayGuard();
       sessionManager.endSession();
@@ -2005,6 +2019,12 @@
       Spicetify.showNotification("Better Shuffle disabled");
     } catch (error) {
       console.error("[Better Shuffle]", error);
+      sessionManager.setToggleEnabled(false);
+      disableAutoplayGuard();
+      sessionManager.endSession();
+      setButtonActive(false);
+      updateNativeShuffleGuard();
+      refreshTooltip();
       Spicetify.showNotification(
         error instanceof Error ? error.message : "Better Shuffle failed",
         true
@@ -2015,12 +2035,11 @@
   };
   var syncUiFromPlayback = () => {
     sessionManager.setToggleEnabled(true);
-    pendingReshuffleClick = true;
-    setButtonActive(true);
     enforceNativeShuffleOff();
+    enableAutoplayGuard();
     updateNativeShuffleGuard();
-    refreshTooltip();
     ensureButtonInDom();
+    syncButtonFromSession();
   };
   var registerToggleButton = () => {
     registerBetterShuffleUiSync(syncUiFromPlayback);
@@ -2067,10 +2086,10 @@
     setTimeout(tryRegisterContextMenu, 2e3);
     setTimeout(tryRegisterSettingsMenu, 2e3);
     Spicetify.Player.addEventListener("songchange", () => {
-      enforceNativeShuffleOff();
       if (sessionManager.isToggleEnabled()) {
-        updateNativeShuffleGuard();
+        enforceNativeShuffleOff();
       }
+      updateNativeShuffleGuard();
       void handleSongChange();
     });
     setTimeout(initializePlaybarFeatures, PLAYBAR_INIT_DELAY_MS);
