@@ -20,7 +20,6 @@ const DEFAULT_ICON = "enhance" as const
 let buttonElement: HTMLButtonElement | null = null
 let buttonTippy: { setContent: (content: string) => void } | null = null
 let isBusy = false
-let pendingReshuffleClick = false
 let placementObserver: MutationObserver | null = null
 
 const injectStyles = () => {
@@ -115,22 +114,17 @@ const refreshTooltip = () => {
     return
   }
 
-  if (pendingReshuffleClick) {
-    updateTooltip("Reshuffle queue")
-    return
-  }
-
-  updateTooltip("Turn off Better Shuffle")
+  updateTooltip("Turn off Better Shuffle · Shift+click to reshuffle")
 }
 
 const handleMouseEnter = () => {
-  if (!buttonElement || !sessionManager.isToggleEnabled() || !pendingReshuffleClick) return
+  if (!buttonElement || !sessionManager.isToggleEnabled()) return
   buttonElement.setAttribute("data-hover-refresh", "true")
   applyButtonIcon("reload")
 }
 
 const handleMouseLeave = () => {
-  if (!buttonElement || !sessionManager.isToggleEnabled()) return
+  if (!buttonElement) return
   buttonElement.removeAttribute("data-hover-refresh")
   applyButtonIcon("default")
 }
@@ -188,7 +182,7 @@ const createBetterShuffleButton = (shuffleReference: HTMLButtonElement): HTMLBut
   button.addEventListener("click", (event) => {
     event.preventDefault()
     event.stopPropagation()
-    handleButtonClick()
+    handleButtonClick(event)
   })
   button.addEventListener("mouseenter", handleMouseEnter)
   button.addEventListener("mouseleave", handleMouseLeave)
@@ -198,6 +192,7 @@ const createBetterShuffleButton = (shuffleReference: HTMLButtonElement): HTMLBut
 
 const mountButton = (): boolean => {
   if (buttonElement && document.contains(buttonElement)) {
+    syncButtonFromSession()
     return placeButton()
   }
 
@@ -220,9 +215,7 @@ const mountButton = (): boolean => {
     })
   }
 
-  pendingReshuffleClick = sessionManager.isToggleEnabled()
-  setButtonActive(sessionManager.isToggleEnabled())
-  refreshTooltip()
+  syncButtonFromSession()
 
   console.info("[Better Shuffle] Playbar button mounted left of shuffle")
   return true
@@ -236,6 +229,7 @@ const ensureButtonInDom = () => {
   }
 
   placeButton()
+  syncButtonFromSession()
 }
 
 const schedulePlacementWatch = () => {
@@ -256,7 +250,17 @@ const schedulePlacementWatch = () => {
   placementObserver.observe(parent, { childList: true })
 }
 
-const handleButtonClick = () => {
+const syncButtonFromSession = () => {
+  const enabled = sessionManager.isToggleEnabled()
+  setButtonActive(enabled)
+  if (!enabled) {
+    buttonElement?.removeAttribute("data-hover-refresh")
+    applyButtonIcon("default")
+  }
+  refreshTooltip()
+}
+
+const handleButtonClick = (event: MouseEvent) => {
   if (!buttonElement || isBusy) return
 
   if (!sessionManager.isToggleEnabled()) {
@@ -264,11 +268,7 @@ const handleButtonClick = () => {
     return
   }
 
-  if (pendingReshuffleClick) {
-    pendingReshuffleClick = false
-    buttonElement.removeAttribute("data-hover-refresh")
-    applyButtonIcon("default")
-    refreshTooltip()
+  if (event.shiftKey) {
     void reshuffleActiveSession()
     return
   }
@@ -304,7 +304,6 @@ const enableBetterShuffle = async () => {
 
   try {
     sessionManager.setToggleEnabled(true)
-    pendingReshuffleClick = true
     enforceNativeShuffleOff()
     enableAutoplayGuard()
     updateNativeShuffleGuard()
@@ -314,7 +313,6 @@ const enableBetterShuffle = async () => {
     await reshuffleFromCurrentTrack()
   } catch (error) {
     console.error("[Better Shuffle]", error)
-    pendingReshuffleClick = false
     setButtonActive(false)
     sessionManager.setToggleEnabled(false)
     disableAutoplayGuard()
@@ -356,7 +354,6 @@ const disableBetterShuffle = async () => {
   playClickAnimation()
 
   try {
-    pendingReshuffleClick = false
     sessionManager.setToggleEnabled(false)
     disableAutoplayGuard()
     sessionManager.endSession()
@@ -369,6 +366,12 @@ const disableBetterShuffle = async () => {
     Spicetify.showNotification("Better Shuffle disabled")
   } catch (error) {
     console.error("[Better Shuffle]", error)
+    sessionManager.setToggleEnabled(false)
+    disableAutoplayGuard()
+    sessionManager.endSession()
+    setButtonActive(false)
+    updateNativeShuffleGuard()
+    refreshTooltip()
     Spicetify.showNotification(
       error instanceof Error ? error.message : "Better Shuffle failed",
       true
@@ -380,12 +383,11 @@ const disableBetterShuffle = async () => {
 
 const syncUiFromPlayback = () => {
   sessionManager.setToggleEnabled(true)
-  pendingReshuffleClick = true
-  setButtonActive(true)
   enforceNativeShuffleOff()
+  enableAutoplayGuard()
   updateNativeShuffleGuard()
-  refreshTooltip()
   ensureButtonInDom()
+  syncButtonFromSession()
 }
 
 export const registerToggleButton = () => {

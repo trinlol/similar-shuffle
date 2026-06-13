@@ -57,10 +57,10 @@ const initializeExtension = () => {
   setTimeout(tryRegisterSettingsMenu, 2000)
 
   Spicetify.Player.addEventListener("songchange", () => {
-    enforceNativeShuffleOff()
     if (sessionManager.isToggleEnabled()) {
-      updateNativeShuffleGuard()
+      enforceNativeShuffleOff()
     }
+    updateNativeShuffleGuard()
     void handleSongChange()
   })
 
