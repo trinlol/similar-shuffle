@@ -1,6 +1,6 @@
 // NAME: Better Shuffle
 // DESCRIPTION: Progressive shuffle — similar genre/era first, then your library
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // AUTHORS: Better Shuffle Contributors
 
 "use strict";
@@ -25,7 +25,10 @@
     matchTempo: true,
     matchEnergy: true,
     matchValence: true,
-    blendPhases: DEFAULT_BLEND_PHASES
+    blendPhases: DEFAULT_BLEND_PHASES,
+    songBlendMode: "progressive",
+    playlistShuffleMode: "similar",
+    artistShuffleMode: "strict"
   };
   var loadSettings = () => {
     try {
@@ -193,7 +196,17 @@
   };
 
   // src/algorithm/progressiveBlend.ts
-  var getBlendWeights = (position, phases) => {
+  var getBlendWeights = (position, settings) => {
+    if (settings.songBlendMode === "balanced") {
+      return { similarWeight: 0.5, profileWeight: 0.5 };
+    }
+    if (settings.songBlendMode === "similar") {
+      return { similarWeight: 1, profileWeight: 0 };
+    }
+    if (settings.songBlendMode === "library") {
+      return { similarWeight: 0, profileWeight: 1 };
+    }
+    const phases = settings.blendPhases;
     const phase = phases.find((entry) => position <= entry.maxPosition) ?? phases[phases.length - 1];
     return {
       similarWeight: phase.similarWeight,
@@ -201,7 +214,7 @@
     };
   };
   var buildTrackBatch = (seed, position, sessionPlayedUris, similarPool, profilePool, settings, count) => {
-    const { similarWeight, profileWeight } = getBlendWeights(position, settings.blendPhases);
+    const { similarWeight, profileWeight } = getBlendWeights(position, settings);
     const playedSet = new Set(sessionPlayedUris);
     const excludeEarlyArtist = settings.excludeSeedArtistEarly && position <= 4;
     let similar = dedupeCandidates(filterPlayableCandidates(similarPool)).filter(
@@ -253,6 +266,55 @@
     }
     return softShuffle(selected, 3);
   };
+  var buildSinglePoolBatch = (seed, pool, sessionPlayedUris, settings, count) => {
+    const playedSet = new Set(sessionPlayedUris);
+    let eligiblePool = pool.filter((track) => !playedSet.has(track.uri));
+    if (eligiblePool.length === 0) {
+      const recentHistory = sessionPlayedUris.slice(-settings.historyPenaltyWindow);
+      playedSet.clear();
+      recentHistory.forEach((uri) => playedSet.add(uri));
+      eligiblePool = pool.filter((track) => !playedSet.has(track.uri));
+    }
+    const historyWeights = computeHistoryWeights(eligiblePool, sessionPlayedUris, settings.historyPenaltyWindow);
+    const selected = [];
+    const recentPlayed = [];
+    const albumSpacing = 2;
+    while (selected.length < count && eligiblePool.length > 0) {
+      const recentKeys = getRecentKeys(recentPlayed, settings.artistSpacing);
+      const favorObscure = settings.deprioritizePopular;
+      const picked = pickFromPool(eligiblePool, {
+        recentKeys,
+        artistSpacing: settings.artistSpacing,
+        albumSpacing,
+        favorObscure,
+        historyWeights,
+        seedYear: seed?.releaseYear,
+        eraWindow: settings.eraWindow
+      });
+      if (!picked) {
+        const fallbackPicked = pickFromPool(eligiblePool, {
+          recentKeys: { artists: [], albums: [] },
+          artistSpacing: 0,
+          albumSpacing: 0,
+          favorObscure,
+          historyWeights,
+          seedYear: seed?.releaseYear,
+          eraWindow: settings.eraWindow
+        });
+        if (!fallbackPicked) break;
+        selected.push(fallbackPicked);
+        recentPlayed.push(fallbackPicked);
+        playedSet.add(fallbackPicked.uri);
+        eligiblePool = eligiblePool.filter((track) => track.uri !== fallbackPicked.uri);
+      } else {
+        selected.push(picked);
+        recentPlayed.push(picked);
+        playedSet.add(picked.uri);
+        eligiblePool = eligiblePool.filter((track) => track.uri !== picked.uri);
+      }
+    }
+    return softShuffle(selected, 3);
+  };
 
   // src/session/SessionManager.ts
   var state = {
@@ -264,7 +326,12 @@
     position: 0,
     similarPool: [],
     profilePool: [],
-    isRefilling: false
+    isRefilling: false,
+    playlistUri: null,
+    playlistTracks: [],
+    topTracksBlacklist: [],
+    artistUri: null,
+    artistTracks: []
   };
   var sessionManager = {
     isActive: () => state.active,
@@ -286,6 +353,11 @@
     setRefilling: (value) => {
       state.isRefilling = value;
     },
+    isPlaylistSession: () => Boolean(state.playlistUri),
+    getPlaylistTracks: () => state.playlistTracks,
+    getTopTracksBlacklist: () => state.topTracksBlacklist,
+    isArtistSession: () => Boolean(state.artistUri),
+    getArtistTracks: () => state.artistTracks,
     startSession: (seed) => {
       state.active = true;
       state.seed = seed;
@@ -294,6 +366,39 @@
       state.position = 0;
       state.similarPool = [];
       state.profilePool = [];
+      state.playlistUri = null;
+      state.playlistTracks = [];
+      state.topTracksBlacklist = [];
+      state.artistUri = null;
+      state.artistTracks = [];
+    },
+    startPlaylistSession: (seed, playlistUri, playlistTracks, topTracks) => {
+      state.active = true;
+      state.seed = seed;
+      state.playedUris = [seed.uri];
+      state.queuedUris = [];
+      state.position = 0;
+      state.similarPool = [];
+      state.profilePool = [];
+      state.playlistUri = playlistUri;
+      state.playlistTracks = playlistTracks;
+      state.topTracksBlacklist = topTracks;
+      state.artistUri = null;
+      state.artistTracks = [];
+    },
+    startArtistSession: (seed, artistUri, artistTracks) => {
+      state.active = true;
+      state.seed = seed;
+      state.playedUris = [seed.uri];
+      state.queuedUris = [];
+      state.position = 0;
+      state.similarPool = [];
+      state.profilePool = [];
+      state.playlistUri = null;
+      state.playlistTracks = [];
+      state.topTracksBlacklist = [];
+      state.artistUri = artistUri;
+      state.artistTracks = artistTracks;
     },
     endSession: () => {
       state.active = false;
@@ -304,6 +409,11 @@
       state.similarPool = [];
       state.profilePool = [];
       state.isRefilling = false;
+      state.playlistUri = null;
+      state.playlistTracks = [];
+      state.topTracksBlacklist = [];
+      state.artistUri = null;
+      state.artistTracks = [];
     },
     recordTrackPlayed: (uri) => {
       if (!uri || uri === "spotify:delimiter") return;
@@ -567,9 +677,56 @@
     const res = await Spicetify.Platform.PlaylistAPI.getContents(`spotify:playlist:${playlistId}`, {
       limit: 100
     });
-    return (res.items ?? []).filter((item) => item.isPlayable).map(
+    return (res.items ?? []).filter((item) => item.uri && item.uri.startsWith("spotify:track:") && item.isPlayable !== false).map(
       (item) => candidateFromUri(item.uri, item.metadata)
     );
+  };
+  var fetchAllPlaylistTracks = async (playlistUri) => {
+    const playlistId = getUriId(playlistUri);
+    if (!playlistId) return [];
+    const allTracks = [];
+    let offset = 0;
+    const limit = 100;
+    try {
+      while (true) {
+        const res = await Spicetify.Platform.PlaylistAPI.getContents(`spotify:playlist:${playlistId}`, {
+          limit,
+          offset
+        });
+        const items = res?.items ?? [];
+        if (items.length === 0) break;
+        const tracks = items.filter((item) => item.uri && item.uri.startsWith("spotify:track:") && item.isPlayable !== false).map(
+          (item) => candidateFromUri(item.uri, item.metadata)
+        );
+        allTracks.push(...tracks);
+        if (items.length < limit || allTracks.length >= 2e3) {
+          break;
+        }
+        offset += limit;
+      }
+    } catch (error) {
+      console.warn("[Better Shuffle] Failed to fetch all playlist tracks", error);
+    }
+    return allTracks;
+  };
+  var fetchTopTracks = async () => {
+    const topTracks = [];
+    try {
+      const [shortTermRes, mediumTermRes] = await Promise.all([
+        Spicetify.CosmosAsync.get("https://api.spotify.com/v1/me/top/tracks?limit=50&time_range=short_term"),
+        Spicetify.CosmosAsync.get("https://api.spotify.com/v1/me/top/tracks?limit=50&time_range=medium_term")
+      ]);
+      const shortTermItems = shortTermRes?.items ?? [];
+      const mediumTermItems = mediumTermRes?.items ?? [];
+      for (const item of [...shortTermItems, ...mediumTermItems]) {
+        if (item?.uri) {
+          topTracks.push(item.uri);
+        }
+      }
+    } catch (error) {
+      console.warn("[Better Shuffle] Failed to fetch top tracks", error);
+    }
+    return [...new Set(topTracks)];
   };
   var scorePlaylistName = (name, seed) => {
     const lower = name.toLowerCase();
@@ -603,19 +760,26 @@
   };
   var pickSeedFromCollection = async (uris) => {
     if (uris.length === 0) return null;
-    if (uris.length === 1) return uris[0];
-    const uriObj = Spicetify.URI.fromString(uris[0]);
-    const { Type: Type2 } = Spicetify.URI;
+    const firstUri = uris[0];
+    const uriObj = Spicetify.URI.fromString(firstUri);
+    const { Type } = Spicetify.URI;
+    if (uriObj.type === Type.TRACK) {
+      return firstUri;
+    }
     switch (uriObj.type) {
-      case Type2.PLAYLIST:
-      case Type2.PLAYLIST_V2: {
-        const tracks = await fetchPlaylistTracks(uris[0]);
-        return pickRandom(tracks)?.uri ?? uris[0];
+      case Type.PLAYLIST:
+      case Type.PLAYLIST_V2: {
+        const tracks = await fetchPlaylistTracks(firstUri);
+        const pick = pickRandom(tracks);
+        if (!pick?.uri) {
+          throw new Error("No playable tracks found in this playlist.");
+        }
+        return pick.uri;
       }
-      case Type2.ALBUM: {
+      case Type.ALBUM: {
         const { queryAlbumTracks } = Spicetify.GraphQL.Definitions;
         const { data } = await Spicetify.GraphQL.Request(queryAlbumTracks, {
-          uri: uris[0],
+          uri: firstUri,
           offset: 0,
           limit: 100
         });
@@ -623,21 +787,29 @@
         const playable = items.map((item) => item.track).filter(
           (track) => Boolean(track?.playability?.playable && track.uri)
         );
-        return pickRandom(playable)?.uri ?? uris[0];
+        const pick = pickRandom(playable);
+        if (!pick?.uri) {
+          throw new Error("No playable tracks found in this album.");
+        }
+        return pick.uri;
       }
-      case Type2.ARTIST: {
+      case Type.ARTIST: {
         const { queryArtistOverview } = Spicetify.GraphQL.Definitions;
         const { data } = await Spicetify.GraphQL.Request(queryArtistOverview, {
-          uri: uris[0],
+          uri: firstUri,
           locale: Spicetify.Locale.getLocale(),
           includePrerelease: false
         });
         const topTracks = data?.artistUnion?.discography?.topTracks?.items ?? [];
         const playable = topTracks.map((item) => item.track).filter((track) => Boolean(track?.uri));
-        return pickRandom(playable)?.uri ?? uris[0];
+        const pick = pickRandom(playable);
+        if (!pick?.uri) {
+          throw new Error("No playable tracks found for this artist.");
+        }
+        return pick.uri;
       }
       default:
-        return uris[0];
+        return firstUri;
     }
   };
 
@@ -648,7 +820,7 @@
       const res = await Spicetify.Platform.PlaylistAPI.getContents(`spotify:playlist:${playlistId}`, {
         limit: 100
       });
-      return (res.items ?? []).filter((item) => item.isPlayable).map(
+      return (res.items ?? []).filter((item) => item.uri && item.uri.startsWith("spotify:track:") && item.isPlayable !== false).map(
         (item) => candidateFromUri(item.uri, item.metadata)
       );
     } catch {
@@ -846,9 +1018,101 @@
     }
     return candidates.filter((candidate) => candidate.uri !== seed.uri);
   };
+  var fetchPlaylistRecommendations = async (seeds, settings, limit = 50) => {
+    try {
+      const seedTrackIds = seeds.map((s) => getUriId(s.uri)).filter(Boolean);
+      if (seedTrackIds.length === 0) return [];
+      const market = getMarket();
+      let url = `https://api.spotify.com/v1/recommendations?limit=${limit}&market=${market}&seed_tracks=${seedTrackIds.join(
+        ","
+      )}`;
+      if (settings.deprioritizePopular) {
+        url += `&max_popularity=70`;
+      }
+      const needsFeatures = settings.matchTempo || settings.matchEnergy || settings.matchValence;
+      if (needsFeatures) {
+        const features = await fetchAudioFeatures(seedTrackIds[0]);
+        if (features) {
+          if (settings.matchTempo && features.tempo != null) {
+            url += `&target_tempo=${features.tempo}`;
+          }
+          if (settings.matchEnergy && features.energy != null) {
+            url += `&target_energy=${features.energy}`;
+          }
+          if (settings.matchValence && features.valence != null) {
+            url += `&target_valence=${features.valence}`;
+          }
+        }
+      }
+      const response = await Spicetify.CosmosAsync.get(url);
+      return enrichCandidatesFromSearch(response?.tracks ?? []);
+    } catch (error) {
+      console.warn("[Better Shuffle] Failed to fetch playlist recommendations", error);
+      return [];
+    }
+  };
+  var fetchPlaylistSimilarPool = async (playlistTracks, settings, seedCount = 3) => {
+    if (playlistTracks.length === 0) return [];
+    const playlistUriSet = new Set(playlistTracks.map((t) => t.uri));
+    const seeds = sampleSpread(playlistTracks, Math.min(seedCount, playlistTracks.length));
+    const seedMetadatas = await Promise.all(
+      seeds.map((s) => buildSeedMetadataFromCandidate(s))
+    );
+    const poolResults = await Promise.allSettled(
+      seedMetadatas.map((seed) => fetchSimilarPool(seed, settings))
+    );
+    const recoResult = await Promise.allSettled([
+      fetchPlaylistRecommendations(seeds, settings, settings.initialQueueSize * 2)
+    ]);
+    const merged = [];
+    for (const result of poolResults) {
+      if (result.status === "fulfilled") merged.push(...result.value);
+    }
+    for (const result of recoResult) {
+      if (result.status === "fulfilled") merged.push(...result.value);
+    }
+    const deduped = dedupeCandidates(merged).filter((c) => c.uri.startsWith("spotify:track:")).filter((c) => !playlistUriSet.has(c.uri));
+    console.info(
+      `[Better Shuffle] Playlist similar pool: ${deduped.length} candidates from ${seedMetadatas.length} seeds`
+    );
+    return deduped;
+  };
+  var sampleSpread = (items, count) => {
+    if (count >= items.length) return [...items];
+    const step = items.length / count;
+    const result = [];
+    for (let i = 0; i < count; i++) {
+      const index = Math.min(Math.floor(i * step + Math.random() * step), items.length - 1);
+      result.push(items[index]);
+    }
+    return result;
+  };
+  var buildSeedMetadataFromCandidate = async (candidate) => {
+    const trackId = getUriId(candidate.uri);
+    const artistId = candidate.artistUri ? getUriId(candidate.artistUri) : "";
+    let genres = [];
+    if (artistId) {
+      try {
+        const artist = await Spicetify.CosmosAsync.get(
+          `https://api.spotify.com/v1/artists/${artistId}`
+        );
+        genres = (artist?.genres ?? []).filter((g) => typeof g === "string");
+      } catch {
+      }
+    }
+    return {
+      uri: candidate.uri,
+      trackId,
+      trackName: "",
+      artistName: candidate.artistName ?? "",
+      artistUri: candidate.artistUri ?? "",
+      albumUri: candidate.albumUri,
+      releaseYear: candidate.releaseYear,
+      genres
+    };
+  };
 
   // src/queue/queueManager.ts
-  var { Type } = Spicetify.URI;
   var formatQueueTrack = (uri) => ({
     contextTrack: {
       uri,
@@ -865,8 +1129,29 @@
   var isPlaylistContext = (uri) => {
     if (!uri) return false;
     try {
+      const { Type } = Spicetify.URI;
       const type = Spicetify.URI.fromString(uri).type;
       return type === Type.PLAYLIST || type === Type.PLAYLIST_V2;
+    } catch {
+      return false;
+    }
+  };
+  var isArtistContext = (uri) => {
+    if (!uri) return false;
+    try {
+      const { Type } = Spicetify.URI;
+      const type = Spicetify.URI.fromString(uri).type;
+      return type === Type.ARTIST;
+    } catch {
+      return false;
+    }
+  };
+  var isAlbumContext = (uri) => {
+    if (!uri) return false;
+    try {
+      const { Type } = Spicetify.URI;
+      const type = Spicetify.URI.fromString(uri).type;
+      return type === Type.ALBUM;
     } catch {
       return false;
     }
@@ -874,6 +1159,7 @@
   var isValidPlaybackContext = (uri) => {
     if (!uri) return false;
     try {
+      const { Type } = Spicetify.URI;
       const type = Spicetify.URI.fromString(uri).type;
       return type === Type.PLAYLIST || type === Type.PLAYLIST_V2 || type === Type.ALBUM || type === Type.ARTIST;
     } catch {
@@ -881,11 +1167,12 @@
     }
   };
   var resolveBetterShufflePlaybackContext = (contextUri, albumUri) => {
-    if (contextUri && !isPlaylistContext(contextUri) && isValidPlaybackContext(contextUri)) {
+    if (contextUri && !isPlaylistContext(contextUri) && !isArtistContext(contextUri) && isValidPlaybackContext(contextUri)) {
       return { uri: contextUri, url: `context://${contextUri}` };
     }
     if (albumUri) {
       try {
+        const { Type } = Spicetify.URI;
         const type = Spicetify.URI.fromString(albumUri).type;
         if (type === Type.ALBUM) {
           return { uri: albumUri, url: `context://${albumUri}` };
@@ -897,7 +1184,7 @@
   };
   var detachFromPlaylistContext = async (albumUri) => {
     const currentContextUri = Spicetify.Player.data?.context?.uri;
-    if (!isPlaylistContext(currentContextUri)) return;
+    if (!isPlaylistContext(currentContextUri) && !isArtistContext(currentContextUri)) return;
     const fallback = resolveBetterShufflePlaybackContext(null, albumUri);
     if (!fallback) return;
     try {
@@ -1186,6 +1473,91 @@
     updateNativeShuffleGuard();
   };
 
+  // src/sources/artistTracks.ts
+  var parseYear2 = (value) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const match = value.match(/\d{4}/);
+      if (match) return Number(match[0]);
+    }
+    return void 0;
+  };
+  var fetchAlbumTracks = async (albumUri) => {
+    try {
+      const { queryAlbumTracks } = Spicetify.GraphQL.Definitions;
+      const { data } = await Spicetify.GraphQL.Request(queryAlbumTracks, {
+        uri: albumUri,
+        offset: 0,
+        limit: 100
+      });
+      const album = data?.albumUnion;
+      const items = (album?.tracksV2 ?? album?.tracks ?? []).items ?? [];
+      const releaseYear = parseYear2(album?.date?.isoString ?? album?.date?.year);
+      return items.map((item) => {
+        const track = item?.track;
+        if (!track?.uri) return null;
+        return {
+          uri: track.uri,
+          artistUri: track.artists?.items?.[0]?.uri,
+          artistName: track.artists?.items?.[0]?.profile?.name,
+          albumUri,
+          popularity: track.popularity ?? album?.popularity ?? 50,
+          releaseYear
+        };
+      }).filter((candidate) => Boolean(candidate));
+    } catch (error) {
+      console.warn("[Better Shuffle] Failed to fetch album tracks", error);
+      return [];
+    }
+  };
+  var fetchArtistDiscographyTracks = async (artistUri) => {
+    const artistId = getUriId(artistUri);
+    if (!artistId) return [];
+    try {
+      const market = getMarket();
+      const res = await Spicetify.CosmosAsync.get(
+        `https://api.spotify.com/v1/artists/${artistId}/albums?include_groups=album,single&limit=50&market=${market}`
+      );
+      const albums = res?.items ?? [];
+      if (albums.length === 0) return [];
+      const albumIds = albums.map((item) => item.id).filter(Boolean);
+      const candidates = [];
+      const chunkSize = 20;
+      for (let i = 0; i < albumIds.length; i += chunkSize) {
+        const chunk = albumIds.slice(i, i + chunkSize);
+        const chunkRes = await Spicetify.CosmosAsync.get(
+          `https://api.spotify.com/v1/albums?ids=${chunk.join(",")}&market=${market}`
+        );
+        const fullAlbums = chunkRes?.albums ?? [];
+        for (const album of fullAlbums) {
+          if (!album) continue;
+          const releaseYear = parseYear2(album.release_date);
+          const tracks = album.tracks?.items ?? [];
+          for (const track of tracks) {
+            if (!track?.uri) continue;
+            candidates.push({
+              uri: track.uri,
+              artistUri: `spotify:artist:${artistId}`,
+              artistName: track.artists?.[0]?.name ?? album.artists?.[0]?.name,
+              albumUri: album.uri,
+              popularity: album.popularity ?? 50,
+              releaseYear
+            });
+          }
+        }
+      }
+      const seen = /* @__PURE__ */ new Set();
+      return candidates.filter((c) => {
+        if (seen.has(c.uri)) return false;
+        seen.add(c.uri);
+        return true;
+      });
+    } catch (error) {
+      console.warn("[Better Shuffle] Failed to fetch artist discography tracks", error);
+      return [];
+    }
+  };
+
   // src/services/shuffleEngine.ts
   var ensurePools = async (seed, forceRefresh = false) => {
     const settings = loadSettings();
@@ -1200,7 +1572,145 @@
     sessionManager.setPools(similar, profile);
     return { similar, profile, settings };
   };
+  var buildPlaylistPlayableBatch = async () => {
+    const playlistTracks = sessionManager.getPlaylistTracks();
+    if (playlistTracks.length === 0) {
+      throw new Error("Playlist has no tracks.");
+    }
+    const settings = loadSettings();
+    const mode = settings.playlistShuffleMode;
+    const playedUris = sessionManager.getPlayedUris();
+    const queuedUris = sessionManager.getQueuedUris();
+    const upcomingQueueUris = getUpcomingQueueUris();
+    const excludeUris = [.../* @__PURE__ */ new Set([...playedUris, ...queuedUris, ...upcomingQueueUris])];
+    let batch = [];
+    if (mode === "strict") {
+      batch = buildSinglePoolBatch(
+        sessionManager.getSeed(),
+        playlistTracks,
+        excludeUris,
+        settings,
+        settings.initialQueueSize
+      );
+    } else if (mode === "similar") {
+      const similarPool = await fetchPlaylistSimilarPool(playlistTracks, settings, 3);
+      batch = buildSinglePoolBatch(
+        sessionManager.getSeed(),
+        similarPool,
+        excludeUris,
+        settings,
+        settings.initialQueueSize
+      );
+      if (batch.length < settings.initialQueueSize / 2 && playlistTracks.length > 3) {
+        const extraPool = await fetchPlaylistSimilarPool(playlistTracks, settings, 5);
+        const extraExclude = [...excludeUris, ...batch.map((t) => t.uri)];
+        const extra = buildSinglePoolBatch(
+          sessionManager.getSeed(),
+          extraPool,
+          extraExclude,
+          settings,
+          settings.initialQueueSize - batch.length
+        );
+        batch.push(...extra);
+      }
+    } else {
+      const similarPool = await fetchPlaylistSimilarPool(playlistTracks, settings, 3);
+      batch = buildTrackBatch(
+        sessionManager.getSeed(),
+        sessionManager.getPosition(),
+        excludeUris,
+        similarPool,
+        playlistTracks,
+        settings,
+        settings.initialQueueSize
+      );
+    }
+    if (batch.length === 0) {
+      if (mode === "similar") {
+        console.warn("[Better Shuffle] No similar tracks found, falling back to playlist tracks");
+        Spicetify.showNotification("Could not find similar tracks \u2014 shuffling playlist instead", true);
+      }
+      batch = buildSinglePoolBatch(
+        sessionManager.getSeed(),
+        playlistTracks,
+        excludeUris,
+        settings,
+        settings.initialQueueSize
+      );
+    }
+    if (batch.length === 0) {
+      throw new Error("No suitable tracks found. Adjust your playlist or settings.");
+    }
+    const playableQueueUris = await filterPlayableUris(batch.map((track) => track.uri));
+    const queueUris = playableQueueUris.length > 0 ? playableQueueUris : batch.map((track) => track.uri);
+    return { playableQueueUris: queueUris, settings, similarCount: playlistTracks.length, profileCount: 0 };
+  };
+  var buildArtistPlayableBatch = async () => {
+    const artistTracks = sessionManager.getArtistTracks();
+    if (artistTracks.length === 0) {
+      throw new Error("Artist has no tracks.");
+    }
+    const settings = loadSettings();
+    const mode = settings.artistShuffleMode;
+    const seed = sessionManager.getSeed();
+    const playedUris = sessionManager.getPlayedUris();
+    const queuedUris = sessionManager.getQueuedUris();
+    const upcomingQueueUris = getUpcomingQueueUris();
+    const excludeUris = [.../* @__PURE__ */ new Set([...playedUris, ...queuedUris, ...upcomingQueueUris])];
+    let batch = [];
+    if (mode === "strict") {
+      batch = buildSinglePoolBatch(
+        seed,
+        artistTracks,
+        excludeUris,
+        settings,
+        settings.initialQueueSize
+      );
+    } else {
+      const similarTracks = await fetchSimilarPool(seed, settings);
+      if (mode === "similar") {
+        batch = buildSinglePoolBatch(
+          seed,
+          similarTracks,
+          excludeUris,
+          settings,
+          settings.initialQueueSize
+        );
+      } else {
+        batch = buildTrackBatch(
+          seed,
+          sessionManager.getPosition(),
+          excludeUris,
+          similarTracks,
+          artistTracks,
+          settings,
+          settings.initialQueueSize
+        );
+      }
+    }
+    if (batch.length === 0) {
+      batch = buildSinglePoolBatch(
+        seed,
+        artistTracks,
+        excludeUris,
+        settings,
+        settings.initialQueueSize
+      );
+    }
+    if (batch.length === 0) {
+      throw new Error("No suitable tracks found. Adjust your settings.");
+    }
+    const playableQueueUris = await filterPlayableUris(batch.map((track) => track.uri));
+    const queueUris = playableQueueUris.length > 0 ? playableQueueUris : batch.map((track) => track.uri);
+    return { playableQueueUris: queueUris, settings, similarCount: artistTracks.length, profileCount: 0 };
+  };
   var buildPlayableBatch = async (seed, forceRefreshPools) => {
+    if (sessionManager.isPlaylistSession()) {
+      return await buildPlaylistPlayableBatch();
+    }
+    if (sessionManager.isArtistSession()) {
+      return await buildArtistPlayableBatch();
+    }
     const { similar, profile, settings } = await ensurePools(seed, forceRefreshPools);
     if (similar.length === 0 && profile.length === 0) {
       throw new Error("Could not find tracks for Better Shuffle. Try another song.");
@@ -1232,13 +1742,35 @@
     return { playableQueueUris: queueUris, settings, similarCount: similar.length, profileCount: profile.length };
   };
   var formatSuccessMessage = (queueSize, position, settings, similarCount) => {
-    const { similarWeight, profileWeight } = getBlendWeights(position, settings.blendPhases);
+    if (sessionManager.isPlaylistSession()) {
+      const mode2 = settings.playlistShuffleMode;
+      const desc = mode2 === "strict" ? "playlist tracks" : mode2 === "blend" ? "playlist blend" : "similar to playlist";
+      return `Better Shuffle: ${queueSize} queued \xB7 ${desc}`;
+    }
+    if (sessionManager.isArtistSession()) {
+      const mode2 = settings.artistShuffleMode;
+      const desc = mode2 === "strict" ? "artist discography" : mode2 === "blend" ? "artist blend" : "similar to artist";
+      return `Better Shuffle: ${queueSize} queued \xB7 ${desc}`;
+    }
+    const { similarWeight, profileWeight } = getBlendWeights(position, settings);
     const mode = similarWeight >= profileWeight ? `similar (${similarCount} sources)` : "your library";
     return `Better Shuffle: ${queueSize} queued \xB7 ${mode}`;
   };
   var startBetterShuffle = async (seedUri, contextUri, options = {}) => {
     const seed = await fetchSeedMetadata(seedUri);
-    sessionManager.startSession(seed);
+    if (contextUri && isPlaylistContext(contextUri)) {
+      const playlistTracks = await fetchAllPlaylistTracks(contextUri);
+      const topTracks = await fetchTopTracks();
+      sessionManager.startPlaylistSession(seed, contextUri, playlistTracks, topTracks);
+    } else if (contextUri && isAlbumContext(contextUri)) {
+      const albumTracks = await fetchAlbumTracks(contextUri);
+      sessionManager.startPlaylistSession(seed, contextUri, albumTracks, []);
+    } else if (contextUri && isArtistContext(contextUri)) {
+      const artistTracks = await fetchArtistDiscographyTracks(contextUri);
+      sessionManager.startArtistSession(seed, contextUri, artistTracks);
+    } else {
+      sessionManager.startSession(seed);
+    }
     enableAutoplayGuard();
     enforceNativeShuffleOff();
     const { playableQueueUris, settings, similarCount } = await buildPlayableBatch(
@@ -1368,27 +1900,38 @@
   };
   var isTrackUri = (uri) => {
     if (uri.startsWith("spotify:track:")) return true;
-    const { Type: Type2 } = Spicetify.URI ?? {};
-    if (!Type2) return false;
-    return getUriType(uri) === Type2.TRACK;
+    const { Type } = Spicetify.URI ?? {};
+    if (!Type) return false;
+    return getUriType(uri) === Type.TRACK;
   };
   var isArtistUri = (uri) => {
     if (uri.startsWith("spotify:artist:")) return true;
-    const { Type: Type2 } = Spicetify.URI ?? {};
-    if (!Type2) return false;
-    return getUriType(uri) === Type2.ARTIST;
+    const { Type } = Spicetify.URI ?? {};
+    if (!Type) return false;
+    return getUriType(uri) === Type.ARTIST;
   };
-  var shouldShowMenu = (uris) => {
+  var isAlbumUri = (uri) => {
+    if (uri.startsWith("spotify:album:")) return true;
+    const { Type } = Spicetify.URI ?? {};
+    if (!Type) return false;
+    return getUriType(uri) === Type.ALBUM;
+  };
+  var isPlaylistOnly = (uris) => {
+    if (!uris?.length || uris.length > 1) return false;
+    return isPlaylistContext(uris[0]);
+  };
+  var isNonPlaylist = (uris) => {
     if (!uris?.length) return false;
     try {
       if (uris.length > 1) {
         return uris.every(isTrackUri);
       }
       const uri = uris[0];
-      if (isTrackUri(uri) || isArtistUri(uri)) return true;
-      return false;
+      return isTrackUri(uri) || isArtistUri(uri) || isAlbumUri(uri);
     } catch {
-      return uris.some((uri) => uri.startsWith("spotify:track:") || uri.startsWith("spotify:artist:"));
+      return uris.some(
+        (uri) => uri.startsWith("spotify:track:") || uri.startsWith("spotify:artist:") || uri.startsWith("spotify:album:")
+      );
     }
   };
   var handlePlayWithBetterShuffle = async (uris) => {
@@ -1398,7 +1941,7 @@
       return;
     }
     const rawContext = uris.length === 1 && isValidPlaybackContext(uris[0]) ? uris[0] : null;
-    const contextUri = rawContext && !isPlaylistContext(rawContext) ? rawContext : null;
+    const contextUri = rawContext;
     await startFromContextMenu(seedUri, contextUri);
     syncBetterShuffleFromPlayback();
   };
@@ -1410,11 +1953,17 @@
     new Spicetify.ContextMenu.Item(
       "Play with Better Shuffle",
       runPlayWithBetterShuffle,
-      shouldShowMenu,
+      isNonPlaylist,
+      "enhance"
+    ).register();
+    new Spicetify.ContextMenu.Item(
+      "Similar Shuffle",
+      runPlayWithBetterShuffle,
+      isPlaylistOnly,
       "enhance"
     ).register();
     contextMenuRegistered = true;
-    console.info("[Better Shuffle] Context menu registered");
+    console.info("[Better Shuffle] Context menus registered");
   };
 
   // src/ui/settingsPage.tsx
@@ -1508,6 +2057,31 @@
     row.append(labelEl, input);
     return { row, input };
   };
+  var createSelectField = (label, value, options, onChange) => {
+    const row = document.createElement("div");
+    row.className = "popup-row";
+    const id = fieldId(label);
+    const labelEl = document.createElement("label");
+    labelEl.htmlFor = id;
+    labelEl.textContent = label;
+    const select = document.createElement("select");
+    select.id = id;
+    select.style.color = "var(--spice-text)";
+    select.style.background = "rgba(var(--spice-rgb-shadow), 0.7)";
+    select.style.border = "0";
+    select.style.borderRadius = "4px";
+    select.style.padding = "6px 8px";
+    for (const opt of options) {
+      const optionEl = document.createElement("option");
+      optionEl.value = opt.value;
+      optionEl.textContent = opt.label;
+      optionEl.selected = opt.value === value;
+      select.appendChild(optionEl);
+    }
+    select.addEventListener("change", () => onChange(select.value));
+    row.append(labelEl, select);
+    return { row, select };
+  };
   var buildSettingsDom = () => {
     injectSettingsStyles();
     let settings = loadSettings();
@@ -1532,12 +2106,49 @@
       inputs.matchTempo.checked = next.matchTempo;
       inputs.matchEnergy.checked = next.matchEnergy;
       inputs.matchValence.checked = next.matchValence;
+      inputs.songBlendMode.value = next.songBlendMode;
+      inputs.playlistShuffleMode.value = next.playlistShuffleMode;
+      inputs.artistShuffleMode.value = next.artistShuffleMode;
     };
     const persist = (patch) => {
       const next = { ...settings, ...patch };
       saveSettings(next);
       applyToInputs(next);
     };
+    const songBlendField = createSelectField(
+      "Song blend mode",
+      settings.songBlendMode,
+      [
+        { value: "progressive", label: "Progressive (similar first, library later)" },
+        { value: "balanced", label: "Balanced (50/50 mix)" },
+        { value: "similar", label: "Recommendations Only" },
+        { value: "library", label: "Library Only (matching seed style)" }
+      ],
+      (songBlendMode) => persist({ songBlendMode })
+    );
+    inputs.songBlendMode = songBlendField.select;
+    const playlistShuffleField = createSelectField(
+      "Playlist shuffle mode",
+      settings.playlistShuffleMode,
+      [
+        { value: "strict", label: "Strict (Playlist Tracks Only)" },
+        { value: "blend", label: "Blend (Playlist + Recommendations)" },
+        { value: "similar", label: "Recommendations Only" }
+      ],
+      (playlistShuffleMode) => persist({ playlistShuffleMode })
+    );
+    inputs.playlistShuffleMode = playlistShuffleField.select;
+    const artistShuffleField = createSelectField(
+      "Artist shuffle mode",
+      settings.artistShuffleMode,
+      [
+        { value: "strict", label: "Strict (Artist Tracks Only)" },
+        { value: "blend", label: "Blend (Artist + Similar)" },
+        { value: "similar", label: "Recommendations Only" }
+      ],
+      (artistShuffleMode) => persist({ artistShuffleMode })
+    );
+    inputs.artistShuffleMode = artistShuffleField.select;
     const eraField = createNumberField(
       "Era window (\xB1 years)",
       settings.eraWindow,
@@ -1621,6 +2232,9 @@
     root.append(
       title,
       help,
+      songBlendField.row,
+      playlistShuffleField.row,
+      artistShuffleField.row,
       eraField.row,
       artistField.row,
       refillField.row,

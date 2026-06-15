@@ -13,7 +13,7 @@ const fetchPlaylistCandidates = async (playlistUri: string): Promise<TrackCandid
     })
 
     return (res.items ?? [])
-      .filter((item: { isPlayable?: boolean }) => item.isPlayable)
+      .filter((item: { uri: string; isPlayable?: boolean }) => item.uri && item.uri.startsWith("spotify:track:") && item.isPlayable !== false)
       .map((item: { uri: string; metadata?: Record<string, string> }) =>
         candidateFromUri(item.uri, item.metadata)
       )
@@ -270,3 +270,149 @@ export const fetchSimilarPool = async (
 
   return candidates.filter((candidate) => candidate.uri !== seed.uri)
 }
+
+export const fetchPlaylistRecommendations = async (
+  seeds: TrackCandidate[],
+  settings: BetterShuffleSettings,
+  limit = 50
+): Promise<TrackCandidate[]> => {
+  try {
+    const seedTrackIds = seeds.map((s) => getUriId(s.uri)).filter(Boolean)
+    if (seedTrackIds.length === 0) return []
+
+    const market = getMarket()
+    let url = `https://api.spotify.com/v1/recommendations?limit=${limit}&market=${market}&seed_tracks=${seedTrackIds.join(
+      ","
+    )}`
+
+    if (settings.deprioritizePopular) {
+      url += `&max_popularity=70`
+    }
+
+    const needsFeatures = settings.matchTempo || settings.matchEnergy || settings.matchValence
+    if (needsFeatures) {
+      // Use the first seed's features as a representative target
+      const features = await fetchAudioFeatures(seedTrackIds[0])
+      if (features) {
+        if (settings.matchTempo && features.tempo != null) {
+          url += `&target_tempo=${features.tempo}`
+        }
+        if (settings.matchEnergy && features.energy != null) {
+          url += `&target_energy=${features.energy}`
+        }
+        if (settings.matchValence && features.valence != null) {
+          url += `&target_valence=${features.valence}`
+        }
+      }
+    }
+
+    const response = await Spicetify.CosmosAsync.get(url)
+    return enrichCandidatesFromSearch(response?.tracks ?? [])
+  } catch (error) {
+    console.warn("[Better Shuffle] Failed to fetch playlist recommendations", error)
+    return []
+  }
+}
+
+/**
+ * Fetches a pool of similar tracks for a playlist using the full multi-strategy
+ * approach (radio, inspired-by, genre/era, related artists, album peers, etc.).
+ *
+ * Samples several seed tracks spread across the playlist, runs fetchSimilarPool
+ * for each, then merges and deduplicates the results.  Tracks that already exist
+ * in the playlist are explicitly excluded.
+ */
+export const fetchPlaylistSimilarPool = async (
+  playlistTracks: TrackCandidate[],
+  settings: BetterShuffleSettings,
+  seedCount = 3
+): Promise<TrackCandidate[]> => {
+  if (playlistTracks.length === 0) return []
+
+  // Build the exclusion set from all playlist track URIs
+  const playlistUriSet = new Set(playlistTracks.map((t) => t.uri))
+
+  // Sample seed tracks spread across the playlist for diversity
+  const seeds = sampleSpread(playlistTracks, Math.min(seedCount, playlistTracks.length))
+
+  // Build SeedMetadata for each sampled track
+  const seedMetadatas = await Promise.all(
+    seeds.map((s) => buildSeedMetadataFromCandidate(s))
+  )
+
+  // Run the full multi-strategy fetch for each seed in parallel
+  const poolResults = await Promise.allSettled(
+    seedMetadatas.map((seed) => fetchSimilarPool(seed, settings))
+  )
+
+  // Also try the legacy recommendations endpoint as one more signal
+  const recoResult = await Promise.allSettled([
+    fetchPlaylistRecommendations(seeds, settings, settings.initialQueueSize * 2),
+  ])
+
+  // Merge all results
+  const merged: TrackCandidate[] = []
+  for (const result of poolResults) {
+    if (result.status === "fulfilled") merged.push(...result.value)
+  }
+  for (const result of recoResult) {
+    if (result.status === "fulfilled") merged.push(...result.value)
+  }
+
+  // Deduplicate and exclude tracks that are in the original playlist
+  const deduped = dedupeCandidates(merged)
+    .filter((c) => c.uri.startsWith("spotify:track:"))
+    .filter((c) => !playlistUriSet.has(c.uri))
+
+  console.info(
+    `[Better Shuffle] Playlist similar pool: ${deduped.length} candidates from ${seedMetadatas.length} seeds`
+  )
+
+  return deduped
+}
+
+/**
+ * Samples `count` items spread evenly across an array for maximum diversity.
+ */
+const sampleSpread = <T>(items: T[], count: number): T[] => {
+  if (count >= items.length) return [...items]
+  const step = items.length / count
+  const result: T[] = []
+  for (let i = 0; i < count; i++) {
+    const index = Math.min(Math.floor(i * step + Math.random() * step), items.length - 1)
+    result.push(items[index])
+  }
+  return result
+}
+
+/**
+ * Builds a SeedMetadata object from a TrackCandidate, fetching artist genres.
+ */
+const buildSeedMetadataFromCandidate = async (candidate: TrackCandidate): Promise<SeedMetadata> => {
+  const trackId = getUriId(candidate.uri)
+  const artistId = candidate.artistUri ? getUriId(candidate.artistUri) : ""
+
+  let genres: string[] = []
+  if (artistId) {
+    try {
+      const artist = await Spicetify.CosmosAsync.get(
+        `https://api.spotify.com/v1/artists/${artistId}`
+      )
+      genres = (artist?.genres ?? []).filter((g: string) => typeof g === "string")
+    } catch {
+      // Genres are optional, continue without them
+    }
+  }
+
+  return {
+    uri: candidate.uri,
+    trackId,
+    trackName: "",
+    artistName: candidate.artistName ?? "",
+    artistUri: candidate.artistUri ?? "",
+    albumUri: candidate.albumUri,
+    releaseYear: candidate.releaseYear,
+    genres,
+  }
+}
+

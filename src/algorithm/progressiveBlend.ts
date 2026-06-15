@@ -10,7 +10,18 @@ import {
 } from "./filters"
 import { softShuffle } from "./shuffle"
 
-export const getBlendWeights = (position: number, phases: BlendPhase[]) => {
+export const getBlendWeights = (position: number, settings: BetterShuffleSettings) => {
+  if (settings.songBlendMode === "balanced") {
+    return { similarWeight: 0.5, profileWeight: 0.5 }
+  }
+  if (settings.songBlendMode === "similar") {
+    return { similarWeight: 1.0, profileWeight: 0.0 }
+  }
+  if (settings.songBlendMode === "library") {
+    return { similarWeight: 0.0, profileWeight: 1.0 }
+  }
+
+  const phases = settings.blendPhases
   const phase = phases.find((entry) => position <= entry.maxPosition) ?? phases[phases.length - 1]
   return {
     similarWeight: phase.similarWeight,
@@ -27,7 +38,7 @@ export const buildTrackBatch = (
   settings: BetterShuffleSettings,
   count: number
 ): TrackCandidate[] => {
-  const { similarWeight, profileWeight } = getBlendWeights(position, settings.blendPhases)
+  const { similarWeight, profileWeight } = getBlendWeights(position, settings)
   const playedSet = new Set(sessionPlayedUris)
   const excludeEarlyArtist = settings.excludeSeedArtistEarly && position <= 4
 
@@ -97,5 +108,70 @@ export const buildTrackBatch = (
 
   // Soft shuffle preserves the deliberate ordering (spacing, era affinity)
   // while introducing enough jitter (±3 positions) to feel unpredictable
+  return softShuffle(selected, 3)
+}
+
+export const buildSinglePoolBatch = (
+  seed: SeedMetadata | null,
+  pool: TrackCandidate[],
+  sessionPlayedUris: string[],
+  settings: BetterShuffleSettings,
+  count: number
+): TrackCandidate[] => {
+  const playedSet = new Set(sessionPlayedUris)
+  let eligiblePool = pool.filter((track) => !playedSet.has(track.uri))
+
+  if (eligiblePool.length === 0) {
+    // If everything has been played, reset playedSet (except very recent history) to allow repeating
+    const recentHistory = sessionPlayedUris.slice(-settings.historyPenaltyWindow)
+    playedSet.clear()
+    recentHistory.forEach((uri) => playedSet.add(uri))
+    eligiblePool = pool.filter((track) => !playedSet.has(track.uri))
+  }
+
+  const historyWeights = computeHistoryWeights(eligiblePool, sessionPlayedUris, settings.historyPenaltyWindow)
+
+  const selected: TrackCandidate[] = []
+  const recentPlayed: TrackCandidate[] = []
+  const albumSpacing = 2
+
+  while (selected.length < count && eligiblePool.length > 0) {
+    const recentKeys = getRecentKeys(recentPlayed, settings.artistSpacing)
+    const favorObscure = settings.deprioritizePopular
+
+    const picked = pickFromPool(eligiblePool, {
+      recentKeys,
+      artistSpacing: settings.artistSpacing,
+      albumSpacing,
+      favorObscure,
+      historyWeights,
+      seedYear: seed?.releaseYear,
+      eraWindow: settings.eraWindow,
+    })
+
+    if (!picked) {
+      // If spacing constraints are too tight and we can't pick, pick without spacing
+      const fallbackPicked = pickFromPool(eligiblePool, {
+        recentKeys: { artists: [], albums: [] },
+        artistSpacing: 0,
+        albumSpacing: 0,
+        favorObscure,
+        historyWeights,
+        seedYear: seed?.releaseYear,
+        eraWindow: settings.eraWindow,
+      })
+      if (!fallbackPicked) break
+      selected.push(fallbackPicked)
+      recentPlayed.push(fallbackPicked)
+      playedSet.add(fallbackPicked.uri)
+      eligiblePool = eligiblePool.filter((track) => track.uri !== fallbackPicked.uri)
+    } else {
+      selected.push(picked)
+      recentPlayed.push(picked)
+      playedSet.add(picked.uri)
+      eligiblePool = eligiblePool.filter((track) => track.uri !== picked.uri)
+    }
+  }
+
   return softShuffle(selected, 3)
 }

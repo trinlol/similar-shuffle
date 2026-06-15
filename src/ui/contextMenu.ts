@@ -41,7 +41,19 @@ const isArtistUri = (uri: string) => {
   return getUriType(uri) === Type.ARTIST
 }
 
-const shouldShowMenu = (uris: string[]) => {
+const isAlbumUri = (uri: string) => {
+  if (uri.startsWith("spotify:album:")) return true
+  const { Type } = Spicetify.URI ?? {}
+  if (!Type) return false
+  return getUriType(uri) === Type.ALBUM
+}
+
+const isPlaylistOnly = (uris: string[]): boolean => {
+  if (!uris?.length || uris.length > 1) return false
+  return isPlaylistContext(uris[0])
+}
+
+const isNonPlaylist = (uris: string[]): boolean => {
   if (!uris?.length) return false
 
   try {
@@ -50,11 +62,14 @@ const shouldShowMenu = (uris: string[]) => {
     }
 
     const uri = uris[0]
-    if (isTrackUri(uri) || isArtistUri(uri)) return true
-
-    return false
+    return isTrackUri(uri) || isArtistUri(uri) || isAlbumUri(uri)
   } catch {
-    return uris.some((uri) => uri.startsWith("spotify:track:") || uri.startsWith("spotify:artist:"))
+    return uris.some(
+      (uri) =>
+        uri.startsWith("spotify:track:") ||
+        uri.startsWith("spotify:artist:") ||
+        uri.startsWith("spotify:album:")
+    )
   }
 }
 
@@ -67,11 +82,12 @@ const handlePlayWithBetterShuffle = async (uris: string[]) => {
 
   const rawContext =
     uris.length === 1 && isValidPlaybackContext(uris[0]) ? uris[0] : null
-  const contextUri = rawContext && !isPlaylistContext(rawContext) ? rawContext : null
+  const contextUri = rawContext
 
   await startFromContextMenu(seedUri, contextUri)
   syncBetterShuffleFromPlayback()
 }
+
 
 export const registerContextMenu = () => {
   if (contextMenuRegistered) return
@@ -83,10 +99,17 @@ export const registerContextMenu = () => {
   new Spicetify.ContextMenu.Item(
     "Play with Better Shuffle",
     runPlayWithBetterShuffle,
-    shouldShowMenu,
+    isNonPlaylist,
+    "enhance"
+  ).register()
+
+  new Spicetify.ContextMenu.Item(
+    "Similar Shuffle",
+    runPlayWithBetterShuffle,
+    isPlaylistOnly,
     "enhance"
   ).register()
 
   contextMenuRegistered = true
-  console.info("[Better Shuffle] Context menu registered")
+  console.info("[Better Shuffle] Context menus registered")
 }

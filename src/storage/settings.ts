@@ -12,6 +12,9 @@ export type BetterShuffleSettings = {
   matchEnergy: boolean
   matchValence: boolean
   blendPhases: BlendPhase[]
+  songBlendMode: "progressive" | "balanced" | "similar" | "library"
+  playlistShuffleMode: "strict" | "blend" | "similar"
+  artistShuffleMode: "strict" | "blend" | "similar"
 }
 
 const STORAGE_KEY = "betterShuffle:settings"
@@ -36,6 +39,9 @@ export const DEFAULT_SETTINGS: BetterShuffleSettings = {
   matchEnergy: true,
   matchValence: true,
   blendPhases: DEFAULT_BLEND_PHASES,
+  songBlendMode: "progressive",
+  playlistShuffleMode: "similar",
+  artistShuffleMode: "strict",
 }
 
 export const loadSettings = (): BetterShuffleSettings => {

@@ -119,11 +119,72 @@ const fetchPlaylistTracks = async (playlistUri: string): Promise<TrackCandidate[
   })
 
   return (res.items ?? [])
-    .filter((item: { isPlayable?: boolean }) => item.isPlayable)
+    .filter((item: { uri: string; isPlayable?: boolean }) => item.uri && item.uri.startsWith("spotify:track:") && item.isPlayable !== false)
     .map((item: { uri: string; metadata?: Record<string, string> }) =>
       candidateFromUri(item.uri, item.metadata)
     )
 }
+
+export const fetchAllPlaylistTracks = async (playlistUri: string): Promise<TrackCandidate[]> => {
+  const playlistId = getUriId(playlistUri)
+  if (!playlistId) return []
+
+  const allTracks: TrackCandidate[] = []
+  let offset = 0
+  const limit = 100
+
+  try {
+    while (true) {
+      const res = await Spicetify.Platform.PlaylistAPI.getContents(`spotify:playlist:${playlistId}`, {
+        limit,
+        offset,
+      })
+
+      const items = res?.items ?? []
+      if (items.length === 0) break
+
+      const tracks = items
+        .filter((item: { uri: string; isPlayable?: boolean }) => item.uri && item.uri.startsWith("spotify:track:") && item.isPlayable !== false)
+        .map((item: { uri: string; metadata?: Record<string, string> }) =>
+          candidateFromUri(item.uri, item.metadata)
+        )
+
+      allTracks.push(...tracks)
+
+      if (items.length < limit || allTracks.length >= 2000) {
+        break
+      }
+      offset += limit
+    }
+  } catch (error) {
+    console.warn("[Better Shuffle] Failed to fetch all playlist tracks", error)
+  }
+
+  return allTracks
+}
+
+export const fetchTopTracks = async (): Promise<string[]> => {
+  const topTracks: string[] = []
+  try {
+    const [shortTermRes, mediumTermRes] = await Promise.all([
+      Spicetify.CosmosAsync.get("https://api.spotify.com/v1/me/top/tracks?limit=50&time_range=short_term"),
+      Spicetify.CosmosAsync.get("https://api.spotify.com/v1/me/top/tracks?limit=50&time_range=medium_term"),
+    ])
+
+    const shortTermItems = shortTermRes?.items ?? []
+    const mediumTermItems = mediumTermRes?.items ?? []
+
+    for (const item of [...shortTermItems, ...mediumTermItems]) {
+      if (item?.uri) {
+        topTracks.push(item.uri)
+      }
+    }
+  } catch (error) {
+    console.warn("[Better Shuffle] Failed to fetch top tracks", error)
+  }
+  return [...new Set(topTracks)]
+}
+
 
 const scorePlaylistName = (name: string, seed: SeedMetadata): number => {
   const lower = name.toLowerCase()
@@ -169,21 +230,29 @@ export const fetchProfilePool = async (seed: SeedMetadata): Promise<TrackCandida
 
 export const pickSeedFromCollection = async (uris: string[]): Promise<string | null> => {
   if (uris.length === 0) return null
-  if (uris.length === 1) return uris[0]
 
-  const uriObj = Spicetify.URI.fromString(uris[0])
+  const firstUri = uris[0]
+  const uriObj = Spicetify.URI.fromString(firstUri)
   const { Type } = Spicetify.URI
+
+  if (uriObj.type === Type.TRACK) {
+    return firstUri
+  }
 
   switch (uriObj.type) {
     case Type.PLAYLIST:
     case Type.PLAYLIST_V2: {
-      const tracks = await fetchPlaylistTracks(uris[0])
-      return pickRandom(tracks)?.uri ?? uris[0]
+      const tracks = await fetchPlaylistTracks(firstUri)
+      const pick = pickRandom(tracks)
+      if (!pick?.uri) {
+        throw new Error("No playable tracks found in this playlist.")
+      }
+      return pick.uri
     }
     case Type.ALBUM: {
       const { queryAlbumTracks } = Spicetify.GraphQL.Definitions
       const { data } = await Spicetify.GraphQL.Request(queryAlbumTracks, {
-        uri: uris[0],
+        uri: firstUri,
         offset: 0,
         limit: 100,
       })
@@ -193,12 +262,16 @@ export const pickSeedFromCollection = async (uris: string[]): Promise<string | n
         .filter((track: AlbumTrack | undefined): track is AlbumTrack =>
           Boolean(track?.playability?.playable && track.uri)
         )
-      return pickRandom(playable)?.uri ?? uris[0]
+      const pick = pickRandom(playable)
+      if (!pick?.uri) {
+        throw new Error("No playable tracks found in this album.")
+      }
+      return pick.uri
     }
     case Type.ARTIST: {
       const { queryArtistOverview } = Spicetify.GraphQL.Definitions
       const { data } = await Spicetify.GraphQL.Request(queryArtistOverview, {
-        uri: uris[0],
+        uri: firstUri,
         locale: Spicetify.Locale.getLocale(),
         includePrerelease: false,
       })
@@ -206,9 +279,13 @@ export const pickSeedFromCollection = async (uris: string[]): Promise<string | n
       const playable: AlbumTrack[] = topTracks
         .map((item: { track?: AlbumTrack }) => item.track)
         .filter((track: AlbumTrack | undefined): track is AlbumTrack => Boolean(track?.uri))
-      return pickRandom(playable)?.uri ?? uris[0]
+      const pick = pickRandom(playable)
+      if (!pick?.uri) {
+        throw new Error("No playable tracks found for this artist.")
+      }
+      return pick.uri
     }
     default:
-      return uris[0]
+      return firstUri
   }
 }

@@ -19,8 +19,6 @@ type PlaybackContext = {
   url: string
 }
 
-const { Type } = Spicetify.URI
-
 const formatQueueTrack = (uri: string): QueueTrack => ({
   contextTrack: {
     uri,
@@ -39,8 +37,31 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 export const isPlaylistContext = (uri?: string | null): boolean => {
   if (!uri) return false
   try {
+    const { Type } = Spicetify.URI
     const type = Spicetify.URI.fromString(uri).type
     return type === Type.PLAYLIST || type === Type.PLAYLIST_V2
+  } catch {
+    return false
+  }
+}
+
+export const isArtistContext = (uri?: string | null): boolean => {
+  if (!uri) return false
+  try {
+    const { Type } = Spicetify.URI
+    const type = Spicetify.URI.fromString(uri).type
+    return type === Type.ARTIST
+  } catch {
+    return false
+  }
+}
+
+export const isAlbumContext = (uri?: string | null): boolean => {
+  if (!uri) return false
+  try {
+    const { Type } = Spicetify.URI
+    const type = Spicetify.URI.fromString(uri).type
+    return type === Type.ALBUM
   } catch {
     return false
   }
@@ -49,6 +70,7 @@ export const isPlaylistContext = (uri?: string | null): boolean => {
 export const isValidPlaybackContext = (uri?: string | null): uri is string => {
   if (!uri) return false
   try {
+    const { Type } = Spicetify.URI
     const type = Spicetify.URI.fromString(uri).type
     return (
       type === Type.PLAYLIST ||
@@ -60,6 +82,7 @@ export const isValidPlaybackContext = (uri?: string | null): uri is string => {
     return false
   }
 }
+
 
 export const resolvePlaybackContext = (
   contextUri?: string | null,
@@ -74,17 +97,23 @@ export const resolvePlaybackContext = (
   return null
 }
 
-/** Better Shuffle must not keep playlist context or Spotify injects playlist tracks */
+/** Better Shuffle must not keep playlist or artist context or Spotify injects tracks */
 export const resolveBetterShufflePlaybackContext = (
   contextUri?: string | null,
   albumUri?: string | null
 ): PlaybackContext | null => {
-  if (contextUri && !isPlaylistContext(contextUri) && isValidPlaybackContext(contextUri)) {
+  if (
+    contextUri &&
+    !isPlaylistContext(contextUri) &&
+    !isArtistContext(contextUri) &&
+    isValidPlaybackContext(contextUri)
+  ) {
     return { uri: contextUri, url: `context://${contextUri}` }
   }
 
   if (albumUri) {
     try {
+      const { Type } = Spicetify.URI
       const type = Spicetify.URI.fromString(albumUri).type
       if (type === Type.ALBUM) {
         return { uri: albumUri, url: `context://${albumUri}` }
@@ -94,12 +123,13 @@ export const resolveBetterShufflePlaybackContext = (
     }
   }
 
+
   return null
 }
 
 export const detachFromPlaylistContext = async (albumUri?: string | null) => {
   const currentContextUri = Spicetify.Player.data?.context?.uri
-  if (!isPlaylistContext(currentContextUri)) return
+  if (!isPlaylistContext(currentContextUri) && !isArtistContext(currentContextUri)) return
 
   const fallback = resolveBetterShufflePlaybackContext(null, albumUri)
   if (!fallback) return

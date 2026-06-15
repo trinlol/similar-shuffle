@@ -118,6 +118,42 @@ const createCheckboxField = (
   return { row, input }
 }
 
+const createSelectField = (
+  label: string,
+  value: string,
+  options: { value: string; label: string }[],
+  onChange: (next: any) => void
+) => {
+  const row = document.createElement("div")
+  row.className = "popup-row"
+
+  const id = fieldId(label)
+  const labelEl = document.createElement("label")
+  labelEl.htmlFor = id
+  labelEl.textContent = label
+
+  const select = document.createElement("select")
+  select.id = id
+  select.style.color = "var(--spice-text)"
+  select.style.background = "rgba(var(--spice-rgb-shadow), 0.7)"
+  select.style.border = "0"
+  select.style.borderRadius = "4px"
+  select.style.padding = "6px 8px"
+
+  for (const opt of options) {
+    const optionEl = document.createElement("option")
+    optionEl.value = opt.value
+    optionEl.textContent = opt.label
+    optionEl.selected = opt.value === value
+    select.appendChild(optionEl)
+  }
+
+  select.addEventListener("change", () => onChange(select.value))
+
+  row.append(labelEl, select)
+  return { row, select }
+}
+
 const buildSettingsDom = (): HTMLElement => {
   injectSettingsStyles()
 
@@ -145,6 +181,9 @@ const buildSettingsDom = (): HTMLElement => {
     matchTempo: HTMLInputElement
     matchEnergy: HTMLInputElement
     matchValence: HTMLInputElement
+    songBlendMode: HTMLSelectElement
+    playlistShuffleMode: HTMLSelectElement
+    artistShuffleMode: HTMLSelectElement
   } = {} as never
 
   const applyToInputs = (next: BetterShuffleSettings) => {
@@ -159,6 +198,9 @@ const buildSettingsDom = (): HTMLElement => {
     inputs.matchTempo.checked = next.matchTempo
     inputs.matchEnergy.checked = next.matchEnergy
     inputs.matchValence.checked = next.matchValence
+    inputs.songBlendMode.value = next.songBlendMode
+    inputs.playlistShuffleMode.value = next.playlistShuffleMode
+    inputs.artistShuffleMode.value = next.artistShuffleMode
   }
 
   const persist = (patch: Partial<BetterShuffleSettings>) => {
@@ -166,6 +208,43 @@ const buildSettingsDom = (): HTMLElement => {
     saveSettings(next)
     applyToInputs(next)
   }
+
+  const songBlendField = createSelectField(
+    "Song blend mode",
+    settings.songBlendMode,
+    [
+      { value: "progressive", label: "Progressive (similar first, library later)" },
+      { value: "balanced", label: "Balanced (50/50 mix)" },
+      { value: "similar", label: "Recommendations Only" },
+      { value: "library", label: "Library Only (matching seed style)" },
+    ],
+    (songBlendMode) => persist({ songBlendMode })
+  )
+  inputs.songBlendMode = songBlendField.select
+
+  const playlistShuffleField = createSelectField(
+    "Playlist shuffle mode",
+    settings.playlistShuffleMode,
+    [
+      { value: "strict", label: "Strict (Playlist Tracks Only)" },
+      { value: "blend", label: "Blend (Playlist + Recommendations)" },
+      { value: "similar", label: "Recommendations Only" },
+    ],
+    (playlistShuffleMode) => persist({ playlistShuffleMode })
+  )
+  inputs.playlistShuffleMode = playlistShuffleField.select
+
+  const artistShuffleField = createSelectField(
+    "Artist shuffle mode",
+    settings.artistShuffleMode,
+    [
+      { value: "strict", label: "Strict (Artist Tracks Only)" },
+      { value: "blend", label: "Blend (Artist + Similar)" },
+      { value: "similar", label: "Recommendations Only" },
+    ],
+    (artistShuffleMode) => persist({ artistShuffleMode })
+  )
+  inputs.artistShuffleMode = artistShuffleField.select
 
   const eraField = createNumberField(
     "Era window (± years)",
@@ -261,6 +340,9 @@ const buildSettingsDom = (): HTMLElement => {
   root.append(
     title,
     help,
+    songBlendField.row,
+    playlistShuffleField.row,
+    artistShuffleField.row,
     eraField.row,
     artistField.row,
     refillField.row,

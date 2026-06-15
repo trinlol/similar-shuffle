@@ -11,6 +11,11 @@ type SessionState = {
   similarPool: TrackCandidate[]
   profilePool: TrackCandidate[]
   isRefilling: boolean
+  playlistUri: string | null
+  playlistTracks: TrackCandidate[]
+  topTracksBlacklist: string[]
+  artistUri: string | null
+  artistTracks: TrackCandidate[]
 }
 
 const state: SessionState = {
@@ -23,6 +28,11 @@ const state: SessionState = {
   similarPool: [],
   profilePool: [],
   isRefilling: false,
+  playlistUri: null,
+  playlistTracks: [],
+  topTracksBlacklist: [],
+  artistUri: null,
+  artistTracks: [],
 }
 
 export const sessionManager = {
@@ -45,6 +55,11 @@ export const sessionManager = {
   setRefilling: (value: boolean) => {
     state.isRefilling = value
   },
+  isPlaylistSession: () => Boolean(state.playlistUri),
+  getPlaylistTracks: () => state.playlistTracks,
+  getTopTracksBlacklist: () => state.topTracksBlacklist,
+  isArtistSession: () => Boolean(state.artistUri),
+  getArtistTracks: () => state.artistTracks,
 
   startSession: (seed: SeedMetadata) => {
     state.active = true
@@ -54,6 +69,50 @@ export const sessionManager = {
     state.position = 0
     state.similarPool = []
     state.profilePool = []
+    state.playlistUri = null
+    state.playlistTracks = []
+    state.topTracksBlacklist = []
+    state.artistUri = null
+    state.artistTracks = []
+  },
+
+  startPlaylistSession: (
+    seed: SeedMetadata,
+    playlistUri: string,
+    playlistTracks: TrackCandidate[],
+    topTracks: string[]
+  ) => {
+    state.active = true
+    state.seed = seed
+    state.playedUris = [seed.uri]
+    state.queuedUris = []
+    state.position = 0
+    state.similarPool = []
+    state.profilePool = []
+    state.playlistUri = playlistUri
+    state.playlistTracks = playlistTracks
+    state.topTracksBlacklist = topTracks
+    state.artistUri = null
+    state.artistTracks = []
+  },
+
+  startArtistSession: (
+    seed: SeedMetadata,
+    artistUri: string,
+    artistTracks: TrackCandidate[]
+  ) => {
+    state.active = true
+    state.seed = seed
+    state.playedUris = [seed.uri]
+    state.queuedUris = []
+    state.position = 0
+    state.similarPool = []
+    state.profilePool = []
+    state.playlistUri = null
+    state.playlistTracks = []
+    state.topTracksBlacklist = []
+    state.artistUri = artistUri
+    state.artistTracks = artistTracks
   },
 
   endSession: () => {
@@ -65,7 +124,13 @@ export const sessionManager = {
     state.similarPool = []
     state.profilePool = []
     state.isRefilling = false
+    state.playlistUri = null
+    state.playlistTracks = []
+    state.topTracksBlacklist = []
+    state.artistUri = null
+    state.artistTracks = []
   },
+
 
   recordTrackPlayed: (uri: string) => {
     if (!uri || uri === "spotify:delimiter") return
