@@ -21,13 +21,13 @@ const initializePlaybarFeatures = () => {
   try {
     registerNativeShuffleGuard()
   } catch (error) {
-    console.error("[Better Shuffle] Native shuffle guard failed", error)
+    console.error("[Similar Shuffle] Native shuffle guard failed", error)
   }
 
   try {
     registerToggleButton()
   } catch (error) {
-    console.error("[Better Shuffle] Playbar button registration failed", error)
+    console.error("[Similar Shuffle] Playbar button registration failed", error)
   }
 }
 
@@ -35,7 +35,7 @@ const tryRegisterContextMenu = () => {
   try {
     registerContextMenu()
   } catch (error) {
-    console.error("[Better Shuffle] Context menu registration failed", error)
+    console.error("[Similar Shuffle] Context menu registration failed", error)
   }
 }
 
@@ -43,7 +43,7 @@ const tryRegisterSettingsMenu = () => {
   try {
     registerSettingsMenu()
   } catch (error) {
-    console.error("[Better Shuffle] Settings menu registration failed", error)
+    console.error("[Similar Shuffle] Settings menu registration failed", error)
   }
 }
 
@@ -66,7 +66,7 @@ const initializeExtension = () => {
 
   setTimeout(initializePlaybarFeatures, PLAYBAR_INIT_DELAY_MS)
 
-  console.info("[Better Shuffle] Extension initialized")
+  console.info("[Similar Shuffle] Extension initialized")
 }
 
 const isSpicetifyReady = () =>

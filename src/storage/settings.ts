@@ -1,6 +1,6 @@
 import type { BlendPhase } from "../session/types"
 
-export type BetterShuffleSettings = {
+export type SimilarShuffleSettings = {
   eraWindow: number
   artistSpacing: number
   refillThreshold: number
@@ -17,8 +17,10 @@ export type BetterShuffleSettings = {
   artistShuffleMode: "strict" | "blend" | "similar"
 }
 
-const STORAGE_KEY = "betterShuffle:settings"
-const HISTORY_KEY = "betterShuffle:playHistory"
+const STORAGE_KEY = "similarShuffle:settings"
+const LEGACY_STORAGE_KEY = "betterShuffle:settings"
+const HISTORY_KEY = "similarShuffle:playHistory"
+const LEGACY_HISTORY_KEY = "betterShuffle:playHistory"
 
 export const DEFAULT_BLEND_PHASES: BlendPhase[] = [
   { maxPosition: 4, similarWeight: 1, profileWeight: 0 },
@@ -27,7 +29,7 @@ export const DEFAULT_BLEND_PHASES: BlendPhase[] = [
   { maxPosition: Number.POSITIVE_INFINITY, similarWeight: 0.2, profileWeight: 0.8 },
 ]
 
-export const DEFAULT_SETTINGS: BetterShuffleSettings = {
+export const DEFAULT_SETTINGS: SimilarShuffleSettings = {
   eraWindow: 3,
   artistSpacing: 3,
   refillThreshold: 3,
@@ -44,11 +46,27 @@ export const DEFAULT_SETTINGS: BetterShuffleSettings = {
   artistShuffleMode: "strict",
 }
 
-export const loadSettings = (): BetterShuffleSettings => {
+const migrateLegacyStorage = (): void => {
+  const legacySettings = Spicetify.LocalStorage.get(LEGACY_STORAGE_KEY)
+  if (legacySettings && !Spicetify.LocalStorage.get(STORAGE_KEY)) {
+    Spicetify.LocalStorage.set(STORAGE_KEY, legacySettings)
+    Spicetify.LocalStorage.remove(LEGACY_STORAGE_KEY)
+  }
+
+  const legacyHistory = Spicetify.LocalStorage.get(LEGACY_HISTORY_KEY)
+  if (legacyHistory && !Spicetify.LocalStorage.get(HISTORY_KEY)) {
+    Spicetify.LocalStorage.set(HISTORY_KEY, legacyHistory)
+    Spicetify.LocalStorage.remove(LEGACY_HISTORY_KEY)
+  }
+}
+
+export const loadSettings = (): SimilarShuffleSettings => {
+  migrateLegacyStorage()
+
   try {
     const raw = Spicetify.LocalStorage.get(STORAGE_KEY)
     if (!raw) return { ...DEFAULT_SETTINGS, blendPhases: [...DEFAULT_BLEND_PHASES] }
-    const parsed = JSON.parse(raw) as Partial<BetterShuffleSettings>
+    const parsed = JSON.parse(raw) as Partial<SimilarShuffleSettings>
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
@@ -59,11 +77,13 @@ export const loadSettings = (): BetterShuffleSettings => {
   }
 }
 
-export const saveSettings = (settings: BetterShuffleSettings): void => {
+export const saveSettings = (settings: SimilarShuffleSettings): void => {
   Spicetify.LocalStorage.set(STORAGE_KEY, JSON.stringify(settings))
 }
 
 export const loadPlayHistory = (): string[] => {
+  migrateLegacyStorage()
+
   try {
     const raw = Spicetify.LocalStorage.get(HISTORY_KEY)
     if (!raw) return []

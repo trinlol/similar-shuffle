@@ -1,20 +1,20 @@
 import { sessionManager } from "../session/SessionManager"
 import { enableAutoplayGuard, disableAutoplayGuard } from "../queue/autoplayGuard"
 import { reshuffleFromCurrentTrack, reshuffleOnToggleOff } from "../services/shuffleEngine"
-import { registerBetterShuffleUiSync } from "./betterShuffleUiState"
+import { registerSimilarShuffleUiSync } from "./similarShuffleUiState"
 import { enforceNativeShuffleOff, updateNativeShuffleGuard } from "./nativeShuffleGuard"
 import {
-  BETTER_SHUFFLE_TEST_ID,
+  SIMILAR_SHUFFLE_TEST_ID,
   findNativeShuffleButton,
   placeElementBeforeShuffle,
 } from "./playbarControls"
 import { applyEnhanceIcon, applyRefreshIcon } from "./icons"
 import { debounce } from "../utils/debounce"
 
-const STYLE_ID = "better-shuffle-button-styles"
-const BUTTON_CLASS = "better-shuffle-playbar-btn"
-const CLICK_ANIMATION_CLASS = "better-shuffle-click"
-const TEST_ID = BETTER_SHUFFLE_TEST_ID
+const STYLE_ID = "similar-shuffle-button-styles"
+const BUTTON_CLASS = "similar-shuffle-playbar-btn"
+const CLICK_ANIMATION_CLASS = "similar-shuffle-click"
+const TEST_ID = SIMILAR_SHUFFLE_TEST_ID
 const DEFAULT_ICON = "enhance" as const
 
 let buttonElement: HTMLButtonElement | null = null
@@ -55,7 +55,7 @@ const injectStyles = () => {
     }
 
     button[data-testid="${TEST_ID}"].${BUTTON_CLASS}.${CLICK_ANIMATION_CLASS} {
-      animation: better-shuffle-pulse 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
+      animation: similar-shuffle-pulse 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
     button[data-testid="${TEST_ID}"].${BUTTON_CLASS}.${CLICK_ANIMATION_CLASS}::after {
@@ -65,21 +65,21 @@ const injectStyles = () => {
       border-radius: 50%;
       border: 2px solid var(--spice-button);
       opacity: 0;
-      animation: better-shuffle-ring 0.65s ease-out forwards;
+      animation: similar-shuffle-ring 0.65s ease-out forwards;
       pointer-events: none;
     }
 
     button[data-testid="${TEST_ID}"].${BUTTON_CLASS}[data-hover-refresh="true"] svg {
-      animation: better-shuffle-spin 0.6s ease-out 1;
+      animation: similar-shuffle-spin 0.6s ease-out 1;
     }
 
-    @keyframes better-shuffle-pulse {
+    @keyframes similar-shuffle-pulse {
       0% { transform: scale(1); }
       35% { transform: scale(1.18); }
       100% { transform: scale(1); }
     }
 
-    @keyframes better-shuffle-ring {
+    @keyframes similar-shuffle-ring {
       0% {
         opacity: 0.85;
         transform: scale(0.75);
@@ -90,7 +90,7 @@ const injectStyles = () => {
       }
     }
 
-    @keyframes better-shuffle-spin {
+    @keyframes similar-shuffle-spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
@@ -118,11 +118,11 @@ const updateTooltip = (label: string) => {
 
 const refreshTooltip = () => {
   if (!sessionManager.isToggleEnabled()) {
-    updateTooltip("Better Shuffle")
+    updateTooltip("Similar Shuffle")
     return
   }
 
-  updateTooltip("Turn off Better Shuffle · Shift+click to reshuffle")
+  updateTooltip("Turn off Similar Shuffle · Shift+click to reshuffle")
 }
 
 const handleMouseEnter = () => {
@@ -180,15 +180,15 @@ const placeButton = (): boolean => {
   return placeElementBeforeShuffle(buttonElement)
 }
 
-const createBetterShuffleButton = (shuffleReference: HTMLButtonElement): HTMLButtonElement => {
+const createSimilarShuffleButton = (shuffleReference: HTMLButtonElement): HTMLButtonElement => {
   const button = shuffleReference.cloneNode(true) as HTMLButtonElement
 
   button.setAttribute("data-testid", TEST_ID)
-  button.setAttribute("aria-label", "Better Shuffle")
+  button.setAttribute("aria-label", "Similar Shuffle")
   button.setAttribute("aria-checked", "false")
   button.classList.add(BUTTON_CLASS)
   button.removeAttribute("disabled")
-  button.removeAttribute("data-better-shuffle-blocked")
+  button.removeAttribute("data-similar-shuffle-blocked")
   button.removeAttribute("aria-disabled")
   button.tabIndex = 0
 
@@ -225,19 +225,19 @@ const mountButton = (): boolean => {
     buttonElement = null
   }
 
-  buttonElement = createBetterShuffleButton(shuffleButton)
+  buttonElement = createSimilarShuffleButton(shuffleButton)
   shuffleButton.before(buttonElement)
 
   if (Spicetify.Tippy && Spicetify.TippyProps) {
     buttonTippy = Spicetify.Tippy(buttonElement, {
       ...Spicetify.TippyProps,
-      content: "Better Shuffle",
+      content: "Similar Shuffle",
     })
   }
 
   syncButtonFromSession()
 
-  console.info("[Better Shuffle] Playbar button mounted left of shuffle")
+  console.info("[Similar Shuffle] Playbar button mounted left of shuffle")
   return true
 }
 
@@ -284,7 +284,7 @@ const handleButtonClick = (event: MouseEvent) => {
   if (!buttonElement || isBusy) return
 
   if (!sessionManager.isToggleEnabled()) {
-    void enableBetterShuffle()
+    void enableSimilarShuffle()
     return
   }
 
@@ -293,7 +293,7 @@ const handleButtonClick = (event: MouseEvent) => {
     return
   }
 
-  void disableBetterShuffle()
+  void disableSimilarShuffle()
 }
 
 const waitForShuffleButton = () => {
@@ -311,13 +311,13 @@ const waitForShuffleButton = () => {
     if (attemptMount() || attempts >= 60) {
       clearInterval(interval)
       if (attempts >= 60) {
-        console.warn("[Better Shuffle] Could not find shuffle button to mount playbar control")
+        console.warn("[Similar Shuffle] Could not find shuffle button to mount playbar control")
       }
     }
   }, 2000)
 }
 
-const enableBetterShuffle = async () => {
+const enableSimilarShuffle = async () => {
   if (isBusy) return
   isBusy = true
   playClickAnimation()
@@ -329,10 +329,10 @@ const enableBetterShuffle = async () => {
     updateNativeShuffleGuard()
     setButtonActive(true)
     refreshTooltip()
-    Spicetify.showNotification("Building Better Shuffle queue...")
+    Spicetify.showNotification("Building Similar Shuffle queue...")
     await reshuffleFromCurrentTrack()
   } catch (error) {
-    console.error("[Better Shuffle]", error)
+    console.error("[Similar Shuffle]", error)
     setButtonActive(false)
     sessionManager.setToggleEnabled(false)
     disableAutoplayGuard()
@@ -340,7 +340,7 @@ const enableBetterShuffle = async () => {
     updateNativeShuffleGuard()
     refreshTooltip()
     Spicetify.showNotification(
-      error instanceof Error ? error.message : "Better Shuffle failed",
+      error instanceof Error ? error.message : "Similar Shuffle failed",
       true
     )
   } finally {
@@ -358,7 +358,7 @@ const reshuffleActiveSession = async () => {
     await reshuffleFromCurrentTrack()
     refreshTooltip()
   } catch (error) {
-    console.error("[Better Shuffle]", error)
+    console.error("[Similar Shuffle]", error)
     Spicetify.showNotification(
       error instanceof Error ? error.message : "Reshuffle failed",
       true
@@ -368,7 +368,7 @@ const reshuffleActiveSession = async () => {
   }
 }
 
-const disableBetterShuffle = async () => {
+const disableSimilarShuffle = async () => {
   if (isBusy) return
   isBusy = true
   playClickAnimation()
@@ -383,9 +383,9 @@ const disableBetterShuffle = async () => {
     updateNativeShuffleGuard()
     refreshTooltip()
     await reshuffleOnToggleOff()
-    Spicetify.showNotification("Better Shuffle disabled")
+    Spicetify.showNotification("Similar Shuffle disabled")
   } catch (error) {
-    console.error("[Better Shuffle]", error)
+    console.error("[Similar Shuffle]", error)
     sessionManager.setToggleEnabled(false)
     disableAutoplayGuard()
     sessionManager.endSession()
@@ -393,7 +393,7 @@ const disableBetterShuffle = async () => {
     updateNativeShuffleGuard()
     refreshTooltip()
     Spicetify.showNotification(
-      error instanceof Error ? error.message : "Better Shuffle failed",
+      error instanceof Error ? error.message : "Similar Shuffle failed",
       true
     )
   } finally {
@@ -411,6 +411,6 @@ const syncUiFromPlayback = () => {
 }
 
 export const registerToggleButton = () => {
-  registerBetterShuffleUiSync(syncUiFromPlayback)
+  registerSimilarShuffleUiSync(syncUiFromPlayback)
   waitForShuffleButton()
 }

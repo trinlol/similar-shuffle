@@ -64,7 +64,7 @@ export const filterPlayableUris = async (uris: string[]): Promise<string[]> => {
         for (const uri of chunk) playableUris.add(uri)
       }
     } catch (error) {
-      console.warn("[Better Shuffle] playability check failed, keeping chunk", error)
+      console.warn("[Similar Shuffle] playability check failed, keeping chunk", error)
       for (const uri of chunk) playableUris.add(uri)
     }
   }

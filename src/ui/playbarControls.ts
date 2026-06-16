@@ -1,26 +1,26 @@
-export const BETTER_SHUFFLE_TEST_ID = "better-shuffle-button"
+export const SIMILAR_SHUFFLE_TEST_ID = "similar-shuffle-button"
 
 export const NATIVE_SHUFFLE_SELECTORS = [
-  `button[data-testid="control-button-shuffle"]:not([data-testid="${BETTER_SHUFFLE_TEST_ID}"])`,
-  `.main-shuffleButton-button:not([data-testid="${BETTER_SHUFFLE_TEST_ID}"])`,
+  `button[data-testid="control-button-shuffle"]:not([data-testid="${SIMILAR_SHUFFLE_TEST_ID}"])`,
+  `.main-shuffleButton-button:not([data-testid="${SIMILAR_SHUFFLE_TEST_ID}"])`,
 ]
 
-export const isBetterShuffleButton = (element: Element | null): boolean =>
+export const isSimilarShuffleButton = (element: Element | null): boolean =>
   element instanceof HTMLButtonElement &&
-  element.getAttribute("data-testid") === BETTER_SHUFFLE_TEST_ID
+  element.getAttribute("data-testid") === SIMILAR_SHUFFLE_TEST_ID
 
 const isNativeShuffleLabel = (label: string): boolean => {
   const normalized = label.toLowerCase()
   if (!normalized.includes("shuffle")) return false
   if (normalized.includes("smart")) return false
-  if (normalized.includes("better")) return false
+  if (normalized.includes("similar")) return false
   return true
 }
 
 export const findNativeShuffleButton = (): HTMLButtonElement | null => {
   for (const selector of NATIVE_SHUFFLE_SELECTORS) {
     const element = document.querySelector(selector)
-    if (element instanceof HTMLButtonElement && !isBetterShuffleButton(element)) {
+    if (element instanceof HTMLButtonElement && !isSimilarShuffleButton(element)) {
       return element
     }
   }
@@ -29,7 +29,7 @@ export const findNativeShuffleButton = (): HTMLButtonElement | null => {
   const controlGroup = playPause?.parentElement
   if (controlGroup) {
     const byTestId = controlGroup.querySelector('button[data-testid="control-button-shuffle"]')
-    if (byTestId instanceof HTMLButtonElement && !isBetterShuffleButton(byTestId)) {
+    if (byTestId instanceof HTMLButtonElement && !isSimilarShuffleButton(byTestId)) {
       return byTestId
     }
   }
@@ -43,7 +43,7 @@ export const findNativeShuffleButton = (): HTMLButtonElement | null => {
     for (let index = 0; index < buttons.length; index += 1) {
       const button = buttons.item(index)
       if (!(button instanceof HTMLButtonElement)) continue
-      if (isBetterShuffleButton(button)) continue
+      if (isSimilarShuffleButton(button)) continue
 
       const label = button.getAttribute("aria-label") ?? ""
       if (isNativeShuffleLabel(label)) {
@@ -57,7 +57,7 @@ export const findNativeShuffleButton = (): HTMLButtonElement | null => {
 
 export const isNativeShuffleTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof Element)) return false
-  if (isBetterShuffleButton(target) || target.closest(`[data-testid="${BETTER_SHUFFLE_TEST_ID}"]`)) {
+  if (isSimilarShuffleButton(target) || target.closest(`[data-testid="${SIMILAR_SHUFFLE_TEST_ID}"]`)) {
     return false
   }
 
@@ -68,7 +68,7 @@ export const isNativeShuffleTarget = (target: EventTarget | null): boolean => {
 }
 
 export const placeElementBeforeShuffle = (element: HTMLElement): boolean => {
-  if (isBetterShuffleButton(element)) return false
+  if (isSimilarShuffleButton(element)) return false
 
   const shuffleButton = findNativeShuffleButton()
   if (!shuffleButton) return false

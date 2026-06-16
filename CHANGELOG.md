@@ -1,6 +1,14 @@
 # Changelog
 
-All notable changes to Better Shuffle are documented in this file.
+All notable changes to Similar Shuffle are documented in this file.
+
+## [1.2.0] - 2026-06-16
+
+### Changed
+
+- **Renamed to Similar Shuffle** — extension, script (`similar-shuffle.js`), marketplace listing, and branding updated from Better Shuffle
+- **Unified context menu** — all contexts use **Play with Similar Shuffle**
+- **Settings migration** — existing `betterShuffle:*` local storage keys are migrated automatically
 
 ## [1.1.0] - 2026-06-15
 

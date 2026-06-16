@@ -9,12 +9,12 @@ let hookedButton: HTMLButtonElement | null = null
 let shuffleClickBlocker: ((event: Event) => void) | null = null
 
 const injectStyles = () => {
-  if (document.getElementById("better-shuffle-native-guard-styles")) return
+  if (document.getElementById("similar-shuffle-native-guard-styles")) return
 
   const style = document.createElement("style")
-  style.id = "better-shuffle-native-guard-styles"
+  style.id = "similar-shuffle-native-guard-styles"
   style.textContent = `
-    ${NATIVE_SHUFFLE_SELECTORS.join(", ")}[data-better-shuffle-blocked="true"] {
+    ${NATIVE_SHUFFLE_SELECTORS.join(", ")}[data-similar-shuffle-blocked="true"] {
       opacity: 0.28 !important;
       cursor: not-allowed !important;
       pointer-events: none !important;
@@ -46,7 +46,7 @@ const getShuffleClickBlocker = () => {
       event.stopPropagation()
       event.stopImmediatePropagation()
       enforceNativeShuffleOff()
-      Spicetify.showNotification("Turn off Better Shuffle to use Spotify shuffle", true)
+      Spicetify.showNotification("Turn off Similar Shuffle to use Spotify shuffle", true)
     }
   }
 
@@ -64,7 +64,7 @@ const unblockShuffleClicks = (button: HTMLButtonElement) => {
 
 const applyBlockedState = (button: HTMLButtonElement, blocked: boolean) => {
   if (blocked) {
-    button.setAttribute("data-better-shuffle-blocked", "true")
+    button.setAttribute("data-similar-shuffle-blocked", "true")
     button.setAttribute("aria-disabled", "true")
     button.disabled = true
     button.tabIndex = -1
@@ -72,7 +72,7 @@ const applyBlockedState = (button: HTMLButtonElement, blocked: boolean) => {
     return
   }
 
-  button.removeAttribute("data-better-shuffle-blocked")
+  button.removeAttribute("data-similar-shuffle-blocked")
   button.removeAttribute("aria-disabled")
   button.disabled = false
   button.tabIndex = 0

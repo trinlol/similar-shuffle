@@ -1,17 +1,17 @@
 import { startFromContextMenu } from "../services/shuffleEngine"
-import { syncBetterShuffleFromPlayback } from "./betterShuffleUiState"
+import { syncSimilarShuffleFromPlayback } from "./similarShuffleUiState"
 import { pickSeedFromCollection } from "../sources/profileTracks"
 import { isPlaylistContext, isValidPlaybackContext } from "../queue/queueManager"
 
 let contextMenuRegistered = false
 
-const runPlayWithBetterShuffle = (uris: string[]) => {
-  Spicetify.showNotification("Building Better Shuffle queue...")
+const runPlayWithSimilarShuffle = (uris: string[]) => {
+  Spicetify.showNotification("Building Similar Shuffle queue...")
   setTimeout(() => {
-    handlePlayWithBetterShuffle(uris).catch((error) => {
-      console.error("[Better Shuffle]", error)
+    handlePlayWithSimilarShuffle(uris).catch((error) => {
+      console.error("[Similar Shuffle]", error)
       Spicetify.showNotification(
-        error instanceof Error ? error.message : "Better Shuffle failed",
+        error instanceof Error ? error.message : "Similar Shuffle failed",
         true
       )
     })
@@ -73,7 +73,7 @@ const isNonPlaylist = (uris: string[]): boolean => {
   }
 }
 
-const handlePlayWithBetterShuffle = async (uris: string[]) => {
+const handlePlayWithSimilarShuffle = async (uris: string[]) => {
   const seedUri = await pickSeedFromCollection(uris)
   if (!seedUri) {
     Spicetify.showNotification("Nothing to play", true)
@@ -85,7 +85,7 @@ const handlePlayWithBetterShuffle = async (uris: string[]) => {
   const contextUri = rawContext
 
   await startFromContextMenu(seedUri, contextUri)
-  syncBetterShuffleFromPlayback()
+  syncSimilarShuffleFromPlayback()
 }
 
 
@@ -97,19 +97,19 @@ export const registerContextMenu = () => {
   }
 
   new Spicetify.ContextMenu.Item(
-    "Play with Better Shuffle",
-    runPlayWithBetterShuffle,
+    "Play with Similar Shuffle",
+    runPlayWithSimilarShuffle,
     isNonPlaylist,
     "enhance"
   ).register()
 
   new Spicetify.ContextMenu.Item(
-    "Similar Shuffle",
-    runPlayWithBetterShuffle,
+    "Play with Similar Shuffle",
+    runPlayWithSimilarShuffle,
     isPlaylistOnly,
     "enhance"
   ).register()
 
   contextMenuRegistered = true
-  console.info("[Better Shuffle] Context menus registered")
+  console.info("[Similar Shuffle] Context menus registered")
 }

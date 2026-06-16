@@ -1,13 +1,15 @@
-// NAME: Better Shuffle
-// DESCRIPTION: Progressive shuffle — similar genre/era first, then your library
-// VERSION: 1.1.0
-// AUTHORS: Better Shuffle Contributors
+// NAME: Similar Shuffle
+// DESCRIPTION: Play songs similar to your seed, with optional progressive blend into your library
+// VERSION: 1.2.0
+// AUTHORS: Similar Shuffle Contributors
 
 "use strict";
 (() => {
   // src/storage/settings.ts
-  var STORAGE_KEY = "betterShuffle:settings";
-  var HISTORY_KEY = "betterShuffle:playHistory";
+  var STORAGE_KEY = "similarShuffle:settings";
+  var LEGACY_STORAGE_KEY = "betterShuffle:settings";
+  var HISTORY_KEY = "similarShuffle:playHistory";
+  var LEGACY_HISTORY_KEY = "betterShuffle:playHistory";
   var DEFAULT_BLEND_PHASES = [
     { maxPosition: 4, similarWeight: 1, profileWeight: 0 },
     { maxPosition: 9, similarWeight: 0.7, profileWeight: 0.3 },
@@ -30,7 +32,20 @@
     playlistShuffleMode: "similar",
     artistShuffleMode: "strict"
   };
+  var migrateLegacyStorage = () => {
+    const legacySettings = Spicetify.LocalStorage.get(LEGACY_STORAGE_KEY);
+    if (legacySettings && !Spicetify.LocalStorage.get(STORAGE_KEY)) {
+      Spicetify.LocalStorage.set(STORAGE_KEY, legacySettings);
+      Spicetify.LocalStorage.remove(LEGACY_STORAGE_KEY);
+    }
+    const legacyHistory = Spicetify.LocalStorage.get(LEGACY_HISTORY_KEY);
+    if (legacyHistory && !Spicetify.LocalStorage.get(HISTORY_KEY)) {
+      Spicetify.LocalStorage.set(HISTORY_KEY, legacyHistory);
+      Spicetify.LocalStorage.remove(LEGACY_HISTORY_KEY);
+    }
+  };
   var loadSettings = () => {
+    migrateLegacyStorage();
     try {
       const raw = Spicetify.LocalStorage.get(STORAGE_KEY);
       if (!raw) return { ...DEFAULT_SETTINGS, blendPhases: [...DEFAULT_BLEND_PHASES] };
@@ -48,6 +63,7 @@
     Spicetify.LocalStorage.set(STORAGE_KEY, JSON.stringify(settings));
   };
   var loadPlayHistory = () => {
+    migrateLegacyStorage();
     try {
       const raw = Spicetify.LocalStorage.get(HISTORY_KEY);
       if (!raw) return [];
@@ -490,7 +506,7 @@
           for (const uri of chunk) playableUris.add(uri);
         }
       } catch (error) {
-        console.warn("[Better Shuffle] playability check failed, keeping chunk", error);
+        console.warn("[Similar Shuffle] playability check failed, keeping chunk", error);
         for (const uri of chunk) playableUris.add(uri);
       }
     }
@@ -648,12 +664,12 @@
     try {
       return await fetchLikedTracksFromWebApi();
     } catch (webApiError) {
-      console.warn("[Better Shuffle] Web API liked songs failed, trying collection API", webApiError);
+      console.warn("[Similar Shuffle] Web API liked songs failed, trying collection API", webApiError);
     }
     try {
       return await fetchLikedTracksFromCollection();
     } catch (collectionError) {
-      console.warn("[Better Shuffle] Collection API liked songs failed", collectionError);
+      console.warn("[Similar Shuffle] Collection API liked songs failed", collectionError);
       return [];
     }
   };
@@ -705,7 +721,7 @@
         offset += limit;
       }
     } catch (error) {
-      console.warn("[Better Shuffle] Failed to fetch all playlist tracks", error);
+      console.warn("[Similar Shuffle] Failed to fetch all playlist tracks", error);
     }
     return allTracks;
   };
@@ -724,7 +740,7 @@
         }
       }
     } catch (error) {
-      console.warn("[Better Shuffle] Failed to fetch top tracks", error);
+      console.warn("[Similar Shuffle] Failed to fetch top tracks", error);
     }
     return [...new Set(topTracks)];
   };
@@ -954,7 +970,7 @@
         valence: response?.valence
       };
     } catch (error) {
-      console.warn("[Better Shuffle] Failed to fetch audio features", error);
+      console.warn("[Similar Shuffle] Failed to fetch audio features", error);
       return null;
     }
   };
@@ -989,7 +1005,7 @@
       const response = await Spicetify.CosmosAsync.get(url);
       return enrichCandidatesFromSearch(response?.tracks ?? []);
     } catch (error) {
-      console.warn("[Better Shuffle] v1/recommendations failed", error);
+      console.warn("[Similar Shuffle] v1/recommendations failed", error);
       return [];
     }
   };
@@ -1047,7 +1063,7 @@
       const response = await Spicetify.CosmosAsync.get(url);
       return enrichCandidatesFromSearch(response?.tracks ?? []);
     } catch (error) {
-      console.warn("[Better Shuffle] Failed to fetch playlist recommendations", error);
+      console.warn("[Similar Shuffle] Failed to fetch playlist recommendations", error);
       return [];
     }
   };
@@ -1073,7 +1089,7 @@
     }
     const deduped = dedupeCandidates(merged).filter((c) => c.uri.startsWith("spotify:track:")).filter((c) => !playlistUriSet.has(c.uri));
     console.info(
-      `[Better Shuffle] Playlist similar pool: ${deduped.length} candidates from ${seedMetadatas.length} seeds`
+      `[Similar Shuffle] Playlist similar pool: ${deduped.length} candidates from ${seedMetadatas.length} seeds`
     );
     return deduped;
   };
@@ -1166,7 +1182,7 @@
       return false;
     }
   };
-  var resolveBetterShufflePlaybackContext = (contextUri, albumUri) => {
+  var resolveSimilarShufflePlaybackContext = (contextUri, albumUri) => {
     if (contextUri && !isPlaylistContext(contextUri) && !isArtistContext(contextUri) && isValidPlaybackContext(contextUri)) {
       return { uri: contextUri, url: `context://${contextUri}` };
     }
@@ -1185,7 +1201,7 @@
   var detachFromPlaylistContext = async (albumUri) => {
     const currentContextUri = Spicetify.Player.data?.context?.uri;
     if (!isPlaylistContext(currentContextUri) && !isArtistContext(currentContextUri)) return;
-    const fallback = resolveBetterShufflePlaybackContext(null, albumUri);
+    const fallback = resolveSimilarShufflePlaybackContext(null, albumUri);
     if (!fallback) return;
     try {
       const sessionId = Spicetify.Platform.PlayerAPI.getState().sessionId;
@@ -1194,7 +1210,7 @@
         url: fallback.url
       });
     } catch (error) {
-      console.warn("[Better Shuffle] Could not switch away from playlist context", error);
+      console.warn("[Similar Shuffle] Could not switch away from playlist context", error);
     }
   };
   var getUpcomingQueueUris = () => {
@@ -1257,7 +1273,7 @@
       });
       return true;
     } catch (error) {
-      console.warn("[Better Shuffle] setQueue failed", error);
+      console.warn("[Similar Shuffle] setQueue failed", error);
       return false;
     }
   };
@@ -1333,23 +1349,23 @@
   };
 
   // src/ui/playbarControls.ts
-  var BETTER_SHUFFLE_TEST_ID = "better-shuffle-button";
+  var SIMILAR_SHUFFLE_TEST_ID = "similar-shuffle-button";
   var NATIVE_SHUFFLE_SELECTORS = [
-    `button[data-testid="control-button-shuffle"]:not([data-testid="${BETTER_SHUFFLE_TEST_ID}"])`,
-    `.main-shuffleButton-button:not([data-testid="${BETTER_SHUFFLE_TEST_ID}"])`
+    `button[data-testid="control-button-shuffle"]:not([data-testid="${SIMILAR_SHUFFLE_TEST_ID}"])`,
+    `.main-shuffleButton-button:not([data-testid="${SIMILAR_SHUFFLE_TEST_ID}"])`
   ];
-  var isBetterShuffleButton = (element) => element instanceof HTMLButtonElement && element.getAttribute("data-testid") === BETTER_SHUFFLE_TEST_ID;
+  var isSimilarShuffleButton = (element) => element instanceof HTMLButtonElement && element.getAttribute("data-testid") === SIMILAR_SHUFFLE_TEST_ID;
   var isNativeShuffleLabel = (label) => {
     const normalized = label.toLowerCase();
     if (!normalized.includes("shuffle")) return false;
     if (normalized.includes("smart")) return false;
-    if (normalized.includes("better")) return false;
+    if (normalized.includes("similar")) return false;
     return true;
   };
   var findNativeShuffleButton = () => {
     for (const selector of NATIVE_SHUFFLE_SELECTORS) {
       const element = document.querySelector(selector);
-      if (element instanceof HTMLButtonElement && !isBetterShuffleButton(element)) {
+      if (element instanceof HTMLButtonElement && !isSimilarShuffleButton(element)) {
         return element;
       }
     }
@@ -1357,7 +1373,7 @@
     const controlGroup = playPause?.parentElement;
     if (controlGroup) {
       const byTestId = controlGroup.querySelector('button[data-testid="control-button-shuffle"]');
-      if (byTestId instanceof HTMLButtonElement && !isBetterShuffleButton(byTestId)) {
+      if (byTestId instanceof HTMLButtonElement && !isSimilarShuffleButton(byTestId)) {
         return byTestId;
       }
     }
@@ -1367,7 +1383,7 @@
       for (let index = 0; index < buttons.length; index += 1) {
         const button = buttons.item(index);
         if (!(button instanceof HTMLButtonElement)) continue;
-        if (isBetterShuffleButton(button)) continue;
+        if (isSimilarShuffleButton(button)) continue;
         const label = button.getAttribute("aria-label") ?? "";
         if (isNativeShuffleLabel(label)) {
           return button;
@@ -1378,7 +1394,7 @@
   };
   var isNativeShuffleTarget = (target) => {
     if (!(target instanceof Element)) return false;
-    if (isBetterShuffleButton(target) || target.closest(`[data-testid="${BETTER_SHUFFLE_TEST_ID}"]`)) {
+    if (isSimilarShuffleButton(target) || target.closest(`[data-testid="${SIMILAR_SHUFFLE_TEST_ID}"]`)) {
       return false;
     }
     const shuffle = findNativeShuffleButton();
@@ -1386,7 +1402,7 @@
     return Boolean(target.closest(NATIVE_SHUFFLE_SELECTORS.join(", ")));
   };
   var placeElementBeforeShuffle = (element) => {
-    if (isBetterShuffleButton(element)) return false;
+    if (isSimilarShuffleButton(element)) return false;
     const shuffleButton = findNativeShuffleButton();
     if (!shuffleButton) return false;
     if (element.nextElementSibling !== shuffleButton) {
@@ -1399,11 +1415,11 @@
   var hookedButton = null;
   var shuffleClickBlocker = null;
   var injectStyles = () => {
-    if (document.getElementById("better-shuffle-native-guard-styles")) return;
+    if (document.getElementById("similar-shuffle-native-guard-styles")) return;
     const style = document.createElement("style");
-    style.id = "better-shuffle-native-guard-styles";
+    style.id = "similar-shuffle-native-guard-styles";
     style.textContent = `
-    ${NATIVE_SHUFFLE_SELECTORS.join(", ")}[data-better-shuffle-blocked="true"] {
+    ${NATIVE_SHUFFLE_SELECTORS.join(", ")}[data-similar-shuffle-blocked="true"] {
       opacity: 0.28 !important;
       cursor: not-allowed !important;
       pointer-events: none !important;
@@ -1430,7 +1446,7 @@
         event.stopPropagation();
         event.stopImmediatePropagation();
         enforceNativeShuffleOff();
-        Spicetify.showNotification("Turn off Better Shuffle to use Spotify shuffle", true);
+        Spicetify.showNotification("Turn off Similar Shuffle to use Spotify shuffle", true);
       };
     }
     return shuffleClickBlocker;
@@ -1444,14 +1460,14 @@
   };
   var applyBlockedState = (button, blocked) => {
     if (blocked) {
-      button.setAttribute("data-better-shuffle-blocked", "true");
+      button.setAttribute("data-similar-shuffle-blocked", "true");
       button.setAttribute("aria-disabled", "true");
       button.disabled = true;
       button.tabIndex = -1;
       blockShuffleClicks(button);
       return;
     }
-    button.removeAttribute("data-better-shuffle-blocked");
+    button.removeAttribute("data-similar-shuffle-blocked");
     button.removeAttribute("aria-disabled");
     button.disabled = false;
     button.tabIndex = 0;
@@ -1506,7 +1522,7 @@
         };
       }).filter((candidate) => Boolean(candidate));
     } catch (error) {
-      console.warn("[Better Shuffle] Failed to fetch album tracks", error);
+      console.warn("[Similar Shuffle] Failed to fetch album tracks", error);
       return [];
     }
   };
@@ -1553,7 +1569,7 @@
         return true;
       });
     } catch (error) {
-      console.warn("[Better Shuffle] Failed to fetch artist discography tracks", error);
+      console.warn("[Similar Shuffle] Failed to fetch artist discography tracks", error);
       return [];
     }
   };
@@ -1627,7 +1643,7 @@
     }
     if (batch.length === 0) {
       if (mode === "similar") {
-        console.warn("[Better Shuffle] No similar tracks found, falling back to playlist tracks");
+        console.warn("[Similar Shuffle] No similar tracks found, falling back to playlist tracks");
         Spicetify.showNotification("Could not find similar tracks \u2014 shuffling playlist instead", true);
       }
       batch = buildSinglePoolBatch(
@@ -1713,7 +1729,7 @@
     }
     const { similar, profile, settings } = await ensurePools(seed, forceRefreshPools);
     if (similar.length === 0 && profile.length === 0) {
-      throw new Error("Could not find tracks for Better Shuffle. Try another song.");
+      throw new Error("Could not find tracks for Similar Shuffle. Try another song.");
     }
     const excludeUris = [
       .../* @__PURE__ */ new Set([
@@ -1745,18 +1761,18 @@
     if (sessionManager.isPlaylistSession()) {
       const mode2 = settings.playlistShuffleMode;
       const desc = mode2 === "strict" ? "playlist tracks" : mode2 === "blend" ? "playlist blend" : "similar to playlist";
-      return `Better Shuffle: ${queueSize} queued \xB7 ${desc}`;
+      return `Similar Shuffle: ${queueSize} queued \xB7 ${desc}`;
     }
     if (sessionManager.isArtistSession()) {
       const mode2 = settings.artistShuffleMode;
       const desc = mode2 === "strict" ? "artist discography" : mode2 === "blend" ? "artist blend" : "similar to artist";
-      return `Better Shuffle: ${queueSize} queued \xB7 ${desc}`;
+      return `Similar Shuffle: ${queueSize} queued \xB7 ${desc}`;
     }
     const { similarWeight, profileWeight } = getBlendWeights(position, settings);
     const mode = similarWeight >= profileWeight ? `similar (${similarCount} sources)` : "your library";
-    return `Better Shuffle: ${queueSize} queued \xB7 ${mode}`;
+    return `Similar Shuffle: ${queueSize} queued \xB7 ${mode}`;
   };
-  var startBetterShuffle = async (seedUri, contextUri, options = {}) => {
+  var startSimilarShuffle = async (seedUri, contextUri, options = {}) => {
     const seed = await fetchSeedMetadata(seedUri);
     if (contextUri && isPlaylistContext(contextUri)) {
       const playlistTracks = await fetchAllPlaylistTracks(contextUri);
@@ -1789,7 +1805,7 @@
       const upcoming = playableQueueUris.filter((uri) => uri !== seed.uri);
       sessionManager.setQueuedUris(upcoming);
       syncKnownQueue(upcoming);
-      const playbackContext = resolveBetterShufflePlaybackContext(contextUri, seed.albumUri);
+      const playbackContext = resolveSimilarShufflePlaybackContext(contextUri, seed.albumUri);
       await playSeedAndQueue(seed.uri, upcoming, playbackContext);
     } else {
       const upcoming = playableQueueUris.filter(
@@ -1806,7 +1822,7 @@
     );
   };
   var startFromContextMenu = async (seedUri, contextUri) => {
-    await startBetterShuffle(seedUri, contextUri, {
+    await startSimilarShuffle(seedUri, contextUri, {
       forceRefreshPools: true,
       playSeed: true,
       replaceUpcoming: false
@@ -1815,10 +1831,10 @@
   var reshuffleFromCurrentTrack = async () => {
     const uri = Spicetify.Player.data?.item?.uri;
     if (!uri) {
-      throw new Error("Play a song first, then enable Better Shuffle");
+      throw new Error("Play a song first, then enable Similar Shuffle");
     }
     const playerContextUri = Spicetify.Player.data?.context?.uri ?? null;
-    await startBetterShuffle(uri, playerContextUri, {
+    await startSimilarShuffle(uri, playerContextUri, {
       forceRefreshPools: true,
       playSeed: false,
       replaceUpcoming: true
@@ -1853,7 +1869,7 @@
       sessionManager.setQueuedUris(merged);
       syncKnownQueue(merged);
     } catch (error) {
-      console.error("[Better Shuffle] refill failed", error);
+      console.error("[Similar Shuffle] refill failed", error);
     } finally {
       sessionManager.setRefilling(false);
     }
@@ -1867,24 +1883,24 @@
     await refillQueueIfNeeded();
   };
 
-  // src/ui/betterShuffleUiState.ts
+  // src/ui/similarShuffleUiState.ts
   var syncHandler = null;
-  var registerBetterShuffleUiSync = (handler) => {
+  var registerSimilarShuffleUiSync = (handler) => {
     syncHandler = handler;
   };
-  var syncBetterShuffleFromPlayback = () => {
+  var syncSimilarShuffleFromPlayback = () => {
     syncHandler?.();
   };
 
   // src/ui/contextMenu.ts
   var contextMenuRegistered = false;
-  var runPlayWithBetterShuffle = (uris) => {
-    Spicetify.showNotification("Building Better Shuffle queue...");
+  var runPlayWithSimilarShuffle = (uris) => {
+    Spicetify.showNotification("Building Similar Shuffle queue...");
     setTimeout(() => {
-      handlePlayWithBetterShuffle(uris).catch((error) => {
-        console.error("[Better Shuffle]", error);
+      handlePlayWithSimilarShuffle(uris).catch((error) => {
+        console.error("[Similar Shuffle]", error);
         Spicetify.showNotification(
-          error instanceof Error ? error.message : "Better Shuffle failed",
+          error instanceof Error ? error.message : "Similar Shuffle failed",
           true
         );
       });
@@ -1934,7 +1950,7 @@
       );
     }
   };
-  var handlePlayWithBetterShuffle = async (uris) => {
+  var handlePlayWithSimilarShuffle = async (uris) => {
     const seedUri = await pickSeedFromCollection(uris);
     if (!seedUri) {
       Spicetify.showNotification("Nothing to play", true);
@@ -1943,7 +1959,7 @@
     const rawContext = uris.length === 1 && isValidPlaybackContext(uris[0]) ? uris[0] : null;
     const contextUri = rawContext;
     await startFromContextMenu(seedUri, contextUri);
-    syncBetterShuffleFromPlayback();
+    syncSimilarShuffleFromPlayback();
   };
   var registerContextMenu = () => {
     if (contextMenuRegistered) return;
@@ -1951,36 +1967,36 @@
       throw new Error("Spicetify.ContextMenu.Item is not available");
     }
     new Spicetify.ContextMenu.Item(
-      "Play with Better Shuffle",
-      runPlayWithBetterShuffle,
+      "Play with Similar Shuffle",
+      runPlayWithSimilarShuffle,
       isNonPlaylist,
       "enhance"
     ).register();
     new Spicetify.ContextMenu.Item(
-      "Similar Shuffle",
-      runPlayWithBetterShuffle,
+      "Play with Similar Shuffle",
+      runPlayWithSimilarShuffle,
       isPlaylistOnly,
       "enhance"
     ).register();
     contextMenuRegistered = true;
-    console.info("[Better Shuffle] Context menus registered");
+    console.info("[Similar Shuffle] Context menus registered");
   };
 
   // src/ui/settingsPage.tsx
-  var SETTINGS_STYLE_ID = "better-shuffle-settings-styles";
+  var SETTINGS_STYLE_ID = "similar-shuffle-settings-styles";
   var settingsStyles = `
-.better-shuffle-settings-root .popup-row {
+.similar-shuffle-settings-root .popup-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 0;
 }
-.better-shuffle-settings-root .popup-row label {
+.similar-shuffle-settings-root .popup-row label {
   color: var(--spice-text);
   flex: 1;
 }
-.better-shuffle-settings-root .popup-row input[type="number"] {
+.similar-shuffle-settings-root .popup-row input[type="number"] {
   width: 72px;
   color: var(--spice-text);
   background: rgba(var(--spice-rgb-shadow), 0.7);
@@ -1988,20 +2004,20 @@
   border-radius: 4px;
   padding: 6px 8px;
 }
-.better-shuffle-settings-root .popup-row input[type="checkbox"] {
+.similar-shuffle-settings-root .popup-row input[type="checkbox"] {
   width: 18px;
   height: 18px;
 }
-.better-shuffle-settings-root .popup-title {
+.similar-shuffle-settings-root .popup-title {
   color: var(--spice-text);
   margin: 0 0 8px;
 }
-.better-shuffle-settings-root .popup-help {
+.similar-shuffle-settings-root .popup-help {
   color: rgba(var(--spice-rgb-text), 0.7);
   font-size: 12px;
   margin: 0 0 16px;
 }
-.better-shuffle-settings-root .popup-reset {
+.similar-shuffle-settings-root .popup-reset {
   margin-top: 12px;
   color: var(--spice-text);
   background: rgba(var(--spice-rgb-shadow), 0.7);
@@ -2018,7 +2034,7 @@
     style.textContent = settingsStyles;
     document.head.appendChild(style);
   };
-  var fieldId = (label) => `better-shuffle-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  var fieldId = (label) => `similar-shuffle-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   var createNumberField = (label, value, min, max, onChange) => {
     const row = document.createElement("div");
     row.className = "popup-row";
@@ -2086,10 +2102,10 @@
     injectSettingsStyles();
     let settings = loadSettings();
     const root = document.createElement("div");
-    root.className = "better-shuffle-settings-root";
+    root.className = "similar-shuffle-settings-root";
     const title = document.createElement("h3");
     title.className = "popup-title";
-    title.textContent = "Better Shuffle Settings";
+    title.textContent = "Similar Shuffle Settings";
     const help = document.createElement("p");
     help.className = "popup-help";
     help.textContent = "Starts with genre/era-similar tracks, then gradually blends in your library and playlists.";
@@ -2256,7 +2272,7 @@
     }
     setTimeout(() => {
       Spicetify.PopupModal.display({
-        title: "Better Shuffle",
+        title: "Similar Shuffle",
         content: buildSettingsDom(),
         isLarge: true
       });
@@ -2274,9 +2290,9 @@
       () => openSettingsPage(),
       "edit"
     );
-    new Spicetify.Menu.SubMenu("Better Shuffle", [settingsItem]).register();
+    new Spicetify.Menu.SubMenu("Similar Shuffle", [settingsItem]).register();
     settingsMenuRegistered = true;
-    console.info("[Better Shuffle] Profile menu registered");
+    console.info("[Similar Shuffle] Profile menu registered");
   };
 
   // src/ui/icons.ts
@@ -2313,10 +2329,10 @@
   };
 
   // src/ui/toggleButton.ts
-  var STYLE_ID = "better-shuffle-button-styles";
-  var BUTTON_CLASS = "better-shuffle-playbar-btn";
-  var CLICK_ANIMATION_CLASS = "better-shuffle-click";
-  var TEST_ID = BETTER_SHUFFLE_TEST_ID;
+  var STYLE_ID = "similar-shuffle-button-styles";
+  var BUTTON_CLASS = "similar-shuffle-playbar-btn";
+  var CLICK_ANIMATION_CLASS = "similar-shuffle-click";
+  var TEST_ID = SIMILAR_SHUFFLE_TEST_ID;
   var buttonElement = null;
   var buttonTippy = null;
   var isBusy = false;
@@ -2353,7 +2369,7 @@
     }
 
     button[data-testid="${TEST_ID}"].${BUTTON_CLASS}.${CLICK_ANIMATION_CLASS} {
-      animation: better-shuffle-pulse 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
+      animation: similar-shuffle-pulse 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
     button[data-testid="${TEST_ID}"].${BUTTON_CLASS}.${CLICK_ANIMATION_CLASS}::after {
@@ -2363,21 +2379,21 @@
       border-radius: 50%;
       border: 2px solid var(--spice-button);
       opacity: 0;
-      animation: better-shuffle-ring 0.65s ease-out forwards;
+      animation: similar-shuffle-ring 0.65s ease-out forwards;
       pointer-events: none;
     }
 
     button[data-testid="${TEST_ID}"].${BUTTON_CLASS}[data-hover-refresh="true"] svg {
-      animation: better-shuffle-spin 0.6s ease-out 1;
+      animation: similar-shuffle-spin 0.6s ease-out 1;
     }
 
-    @keyframes better-shuffle-pulse {
+    @keyframes similar-shuffle-pulse {
       0% { transform: scale(1); }
       35% { transform: scale(1.18); }
       100% { transform: scale(1); }
     }
 
-    @keyframes better-shuffle-ring {
+    @keyframes similar-shuffle-ring {
       0% {
         opacity: 0.85;
         transform: scale(0.75);
@@ -2388,7 +2404,7 @@
       }
     }
 
-    @keyframes better-shuffle-spin {
+    @keyframes similar-shuffle-spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
@@ -2411,10 +2427,10 @@
   };
   var refreshTooltip = () => {
     if (!sessionManager.isToggleEnabled()) {
-      updateTooltip("Better Shuffle");
+      updateTooltip("Similar Shuffle");
       return;
     }
-    updateTooltip("Turn off Better Shuffle \xB7 Shift+click to reshuffle");
+    updateTooltip("Turn off Similar Shuffle \xB7 Shift+click to reshuffle");
   };
   var handleMouseEnter = () => {
     if (!buttonElement || !sessionManager.isToggleEnabled()) return;
@@ -2460,14 +2476,14 @@
     if (!buttonElement) return false;
     return placeElementBeforeShuffle(buttonElement);
   };
-  var createBetterShuffleButton = (shuffleReference) => {
+  var createSimilarShuffleButton = (shuffleReference) => {
     const button = shuffleReference.cloneNode(true);
     button.setAttribute("data-testid", TEST_ID);
-    button.setAttribute("aria-label", "Better Shuffle");
+    button.setAttribute("aria-label", "Similar Shuffle");
     button.setAttribute("aria-checked", "false");
     button.classList.add(BUTTON_CLASS);
     button.removeAttribute("disabled");
-    button.removeAttribute("data-better-shuffle-blocked");
+    button.removeAttribute("data-similar-shuffle-blocked");
     button.removeAttribute("aria-disabled");
     button.tabIndex = 0;
     stripActivePresentation(button);
@@ -2495,16 +2511,16 @@
     if (buttonElement && !document.contains(buttonElement)) {
       buttonElement = null;
     }
-    buttonElement = createBetterShuffleButton(shuffleButton);
+    buttonElement = createSimilarShuffleButton(shuffleButton);
     shuffleButton.before(buttonElement);
     if (Spicetify.Tippy && Spicetify.TippyProps) {
       buttonTippy = Spicetify.Tippy(buttonElement, {
         ...Spicetify.TippyProps,
-        content: "Better Shuffle"
+        content: "Similar Shuffle"
       });
     }
     syncButtonFromSession();
-    console.info("[Better Shuffle] Playbar button mounted left of shuffle");
+    console.info("[Similar Shuffle] Playbar button mounted left of shuffle");
     return true;
   };
   var ensureButtonInDom = () => {
@@ -2542,14 +2558,14 @@
   var handleButtonClick = (event) => {
     if (!buttonElement || isBusy) return;
     if (!sessionManager.isToggleEnabled()) {
-      void enableBetterShuffle();
+      void enableSimilarShuffle();
       return;
     }
     if (event.shiftKey) {
       void reshuffleActiveSession();
       return;
     }
-    void disableBetterShuffle();
+    void disableSimilarShuffle();
   };
   var waitForShuffleButton = () => {
     const attemptMount = () => {
@@ -2564,12 +2580,12 @@
       if (attemptMount() || attempts >= 60) {
         clearInterval(interval);
         if (attempts >= 60) {
-          console.warn("[Better Shuffle] Could not find shuffle button to mount playbar control");
+          console.warn("[Similar Shuffle] Could not find shuffle button to mount playbar control");
         }
       }
     }, 2e3);
   };
-  var enableBetterShuffle = async () => {
+  var enableSimilarShuffle = async () => {
     if (isBusy) return;
     isBusy = true;
     playClickAnimation();
@@ -2580,10 +2596,10 @@
       updateNativeShuffleGuard();
       setButtonActive(true);
       refreshTooltip();
-      Spicetify.showNotification("Building Better Shuffle queue...");
+      Spicetify.showNotification("Building Similar Shuffle queue...");
       await reshuffleFromCurrentTrack();
     } catch (error) {
-      console.error("[Better Shuffle]", error);
+      console.error("[Similar Shuffle]", error);
       setButtonActive(false);
       sessionManager.setToggleEnabled(false);
       disableAutoplayGuard();
@@ -2591,7 +2607,7 @@
       updateNativeShuffleGuard();
       refreshTooltip();
       Spicetify.showNotification(
-        error instanceof Error ? error.message : "Better Shuffle failed",
+        error instanceof Error ? error.message : "Similar Shuffle failed",
         true
       );
     } finally {
@@ -2607,7 +2623,7 @@
       await reshuffleFromCurrentTrack();
       refreshTooltip();
     } catch (error) {
-      console.error("[Better Shuffle]", error);
+      console.error("[Similar Shuffle]", error);
       Spicetify.showNotification(
         error instanceof Error ? error.message : "Reshuffle failed",
         true
@@ -2616,7 +2632,7 @@
       isBusy = false;
     }
   };
-  var disableBetterShuffle = async () => {
+  var disableSimilarShuffle = async () => {
     if (isBusy) return;
     isBusy = true;
     playClickAnimation();
@@ -2630,9 +2646,9 @@
       updateNativeShuffleGuard();
       refreshTooltip();
       await reshuffleOnToggleOff();
-      Spicetify.showNotification("Better Shuffle disabled");
+      Spicetify.showNotification("Similar Shuffle disabled");
     } catch (error) {
-      console.error("[Better Shuffle]", error);
+      console.error("[Similar Shuffle]", error);
       sessionManager.setToggleEnabled(false);
       disableAutoplayGuard();
       sessionManager.endSession();
@@ -2640,7 +2656,7 @@
       updateNativeShuffleGuard();
       refreshTooltip();
       Spicetify.showNotification(
-        error instanceof Error ? error.message : "Better Shuffle failed",
+        error instanceof Error ? error.message : "Similar Shuffle failed",
         true
       );
     } finally {
@@ -2656,7 +2672,7 @@
     syncButtonFromSession();
   };
   var registerToggleButton = () => {
-    registerBetterShuffleUiSync(syncUiFromPlayback);
+    registerSimilarShuffleUiSync(syncUiFromPlayback);
     waitForShuffleButton();
   };
 
@@ -2670,26 +2686,26 @@
     try {
       registerNativeShuffleGuard();
     } catch (error) {
-      console.error("[Better Shuffle] Native shuffle guard failed", error);
+      console.error("[Similar Shuffle] Native shuffle guard failed", error);
     }
     try {
       registerToggleButton();
     } catch (error) {
-      console.error("[Better Shuffle] Playbar button registration failed", error);
+      console.error("[Similar Shuffle] Playbar button registration failed", error);
     }
   };
   var tryRegisterContextMenu = () => {
     try {
       registerContextMenu();
     } catch (error) {
-      console.error("[Better Shuffle] Context menu registration failed", error);
+      console.error("[Similar Shuffle] Context menu registration failed", error);
     }
   };
   var tryRegisterSettingsMenu = () => {
     try {
       registerSettingsMenu();
     } catch (error) {
-      console.error("[Better Shuffle] Settings menu registration failed", error);
+      console.error("[Similar Shuffle] Settings menu registration failed", error);
     }
   };
   var initializeExtension = () => {
@@ -2707,7 +2723,7 @@
       void handleSongChange();
     });
     setTimeout(initializePlaybarFeatures, PLAYBAR_INIT_DELAY_MS);
-    console.info("[Better Shuffle] Extension initialized");
+    console.info("[Similar Shuffle] Extension initialized");
   };
   var isSpicetifyReady = () => Boolean(
     Spicetify.Platform && Spicetify.Player && Spicetify.URI && Spicetify.ContextMenu?.Item && Spicetify.Menu?.Item && Spicetify.PopupModal

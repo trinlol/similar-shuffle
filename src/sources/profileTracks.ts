@@ -77,13 +77,13 @@ const fetchLikedTracks = async (): Promise<TrackCandidate[]> => {
   try {
     return await fetchLikedTracksFromWebApi()
   } catch (webApiError) {
-    console.warn("[Better Shuffle] Web API liked songs failed, trying collection API", webApiError)
+    console.warn("[Similar Shuffle] Web API liked songs failed, trying collection API", webApiError)
   }
 
   try {
     return await fetchLikedTracksFromCollection()
   } catch (collectionError) {
-    console.warn("[Better Shuffle] Collection API liked songs failed", collectionError)
+    console.warn("[Similar Shuffle] Collection API liked songs failed", collectionError)
     return []
   }
 }
@@ -157,7 +157,7 @@ export const fetchAllPlaylistTracks = async (playlistUri: string): Promise<Track
       offset += limit
     }
   } catch (error) {
-    console.warn("[Better Shuffle] Failed to fetch all playlist tracks", error)
+    console.warn("[Similar Shuffle] Failed to fetch all playlist tracks", error)
   }
 
   return allTracks
@@ -180,7 +180,7 @@ export const fetchTopTracks = async (): Promise<string[]> => {
       }
     }
   } catch (error) {
-    console.warn("[Better Shuffle] Failed to fetch top tracks", error)
+    console.warn("[Similar Shuffle] Failed to fetch top tracks", error)
   }
   return [...new Set(topTracks)]
 }

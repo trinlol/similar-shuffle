@@ -1,9 +1,9 @@
 [
   {
-    "name": "Better Shuffle",
-    "description": "Progressive shuffle: similar genre/era first, then your library and playlists",
+    "name": "Similar Shuffle",
+    "description": "Play songs similar to your seed, with optional progressive blend into your library",
     "preview": "preview-icon.png",
-    "main": "better-shuffle.js",
+    "main": "similar-shuffle.js",
     "readme": "README.md",
     "authors": [
       { "name": "trinlol", "url": "https://github.com/trinlol" }

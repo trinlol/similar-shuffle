@@ -39,7 +39,7 @@ export const fetchAlbumTracks = async (albumUri: string): Promise<TrackCandidate
       })
       .filter((candidate: any): candidate is TrackCandidate => Boolean(candidate))
   } catch (error) {
-    console.warn("[Better Shuffle] Failed to fetch album tracks", error)
+    console.warn("[Similar Shuffle] Failed to fetch album tracks", error)
     return []
   }
 }
@@ -96,7 +96,7 @@ export const fetchArtistDiscographyTracks = async (artistUri: string): Promise<T
       return true
     })
   } catch (error) {
-    console.warn("[Better Shuffle] Failed to fetch artist discography tracks", error)
+    console.warn("[Similar Shuffle] Failed to fetch artist discography tracks", error)
     return []
   }
 }

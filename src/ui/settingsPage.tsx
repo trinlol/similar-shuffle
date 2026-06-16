@@ -2,24 +2,24 @@ import {
   DEFAULT_SETTINGS,
   loadSettings,
   saveSettings,
-  type BetterShuffleSettings,
+  type SimilarShuffleSettings,
 } from "../storage/settings"
 
-const SETTINGS_STYLE_ID = "better-shuffle-settings-styles"
+const SETTINGS_STYLE_ID = "similar-shuffle-settings-styles"
 
 const settingsStyles = `
-.better-shuffle-settings-root .popup-row {
+.similar-shuffle-settings-root .popup-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 0;
 }
-.better-shuffle-settings-root .popup-row label {
+.similar-shuffle-settings-root .popup-row label {
   color: var(--spice-text);
   flex: 1;
 }
-.better-shuffle-settings-root .popup-row input[type="number"] {
+.similar-shuffle-settings-root .popup-row input[type="number"] {
   width: 72px;
   color: var(--spice-text);
   background: rgba(var(--spice-rgb-shadow), 0.7);
@@ -27,20 +27,20 @@ const settingsStyles = `
   border-radius: 4px;
   padding: 6px 8px;
 }
-.better-shuffle-settings-root .popup-row input[type="checkbox"] {
+.similar-shuffle-settings-root .popup-row input[type="checkbox"] {
   width: 18px;
   height: 18px;
 }
-.better-shuffle-settings-root .popup-title {
+.similar-shuffle-settings-root .popup-title {
   color: var(--spice-text);
   margin: 0 0 8px;
 }
-.better-shuffle-settings-root .popup-help {
+.similar-shuffle-settings-root .popup-help {
   color: rgba(var(--spice-rgb-text), 0.7);
   font-size: 12px;
   margin: 0 0 16px;
 }
-.better-shuffle-settings-root .popup-reset {
+.similar-shuffle-settings-root .popup-reset {
   margin-top: 12px;
   color: var(--spice-text);
   background: rgba(var(--spice-rgb-shadow), 0.7);
@@ -60,7 +60,7 @@ const injectSettingsStyles = () => {
 }
 
 const fieldId = (label: string) =>
-  `better-shuffle-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`
+  `similar-shuffle-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`
 
 const createNumberField = (
   label: string,
@@ -159,11 +159,11 @@ const buildSettingsDom = (): HTMLElement => {
 
   let settings = loadSettings()
   const root = document.createElement("div")
-  root.className = "better-shuffle-settings-root"
+  root.className = "similar-shuffle-settings-root"
 
   const title = document.createElement("h3")
   title.className = "popup-title"
-  title.textContent = "Better Shuffle Settings"
+  title.textContent = "Similar Shuffle Settings"
 
   const help = document.createElement("p")
   help.className = "popup-help"
@@ -186,7 +186,7 @@ const buildSettingsDom = (): HTMLElement => {
     artistShuffleMode: HTMLSelectElement
   } = {} as never
 
-  const applyToInputs = (next: BetterShuffleSettings) => {
+  const applyToInputs = (next: SimilarShuffleSettings) => {
     settings = next
     inputs.eraWindow.value = String(next.eraWindow)
     inputs.artistSpacing.value = String(next.artistSpacing)
@@ -203,7 +203,7 @@ const buildSettingsDom = (): HTMLElement => {
     inputs.artistShuffleMode.value = next.artistShuffleMode
   }
 
-  const persist = (patch: Partial<BetterShuffleSettings>) => {
+  const persist = (patch: Partial<SimilarShuffleSettings>) => {
     const next = { ...settings, ...patch }
     saveSettings(next)
     applyToInputs(next)
@@ -368,7 +368,7 @@ export const openSettingsPage = () => {
 
   setTimeout(() => {
     Spicetify.PopupModal.display({
-      title: "Better Shuffle",
+      title: "Similar Shuffle",
       content: buildSettingsDom(),
       isLarge: true,
     })
@@ -391,8 +391,8 @@ export const registerSettingsMenu = () => {
     "edit"
   )
 
-  new Spicetify.Menu.SubMenu("Better Shuffle", [settingsItem]).register()
+  new Spicetify.Menu.SubMenu("Similar Shuffle", [settingsItem]).register()
 
   settingsMenuRegistered = true
-  console.info("[Better Shuffle] Profile menu registered")
+  console.info("[Similar Shuffle] Profile menu registered")
 }

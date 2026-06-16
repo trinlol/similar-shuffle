@@ -13,7 +13,7 @@ const outDir = isRelease
   : isLocal
     ? join(__dirname, "dist")
     : join(process.env.APPDATA || "", "spicetify", "Extensions")
-const outfile = join(outDir, "better-shuffle.js")
+const outfile = join(outDir, "similar-shuffle.js")
 
 const buildOptions = {
   entryPoints: [join(__dirname, "src", "app.tsx")],
@@ -26,7 +26,7 @@ const buildOptions = {
   jsxFragment: "Spicetify.React.Fragment",
   logLevel: "info",
   banner: {
-    js: "// NAME: Better Shuffle\n// DESCRIPTION: Progressive shuffle — similar genre/era first, then your library\n// VERSION: 1.1.0\n// AUTHORS: Better Shuffle Contributors\n",
+    js: "// NAME: Similar Shuffle\n// DESCRIPTION: Play songs similar to your seed, with optional progressive blend into your library\n// VERSION: 1.2.0\n// AUTHORS: Similar Shuffle Contributors\n",
   },
 }
 

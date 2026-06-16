@@ -13,7 +13,7 @@ import {
   detachFromPlaylistContext,
   playSeedAndQueue,
   replaceUpcomingQueue,
-  resolveBetterShufflePlaybackContext,
+  resolveSimilarShufflePlaybackContext,
   shuffleUpcomingInPlace,
   isPlaylistContext,
   isArtistContext,
@@ -115,7 +115,7 @@ const buildPlaylistPlayableBatch = async () => {
   // and warn the user that we couldn't find similar tracks
   if (batch.length === 0) {
     if (mode === "similar") {
-      console.warn("[Better Shuffle] No similar tracks found, falling back to playlist tracks")
+      console.warn("[Similar Shuffle] No similar tracks found, falling back to playlist tracks")
       Spicetify.showNotification("Could not find similar tracks — shuffling playlist instead", true)
     }
     batch = buildSinglePoolBatch(
@@ -218,7 +218,7 @@ const buildPlayableBatch = async (seed: SeedMetadata, forceRefreshPools: boolean
   const { similar, profile, settings } = await ensurePools(seed, forceRefreshPools)
 
   if (similar.length === 0 && profile.length === 0) {
-    throw new Error("Could not find tracks for Better Shuffle. Try another song.")
+    throw new Error("Could not find tracks for Similar Shuffle. Try another song.")
   }
 
   const excludeUris = [
@@ -264,23 +264,23 @@ const formatSuccessMessage = (
     const mode = settings.playlistShuffleMode
     const desc =
       mode === "strict" ? "playlist tracks" : mode === "blend" ? "playlist blend" : "similar to playlist"
-    return `Better Shuffle: ${queueSize} queued · ${desc}`
+    return `Similar Shuffle: ${queueSize} queued · ${desc}`
   }
   if (sessionManager.isArtistSession()) {
     const mode = settings.artistShuffleMode
     const desc =
       mode === "strict" ? "artist discography" : mode === "blend" ? "artist blend" : "similar to artist"
-    return `Better Shuffle: ${queueSize} queued · ${desc}`
+    return `Similar Shuffle: ${queueSize} queued · ${desc}`
   }
   const { similarWeight, profileWeight } = getBlendWeights(position, settings)
   const mode =
     similarWeight >= profileWeight
       ? `similar (${similarCount} sources)`
       : "your library"
-  return `Better Shuffle: ${queueSize} queued · ${mode}`
+  return `Similar Shuffle: ${queueSize} queued · ${mode}`
 }
 
-export const startBetterShuffle = async (
+export const startSimilarShuffle = async (
   seedUri: string,
   contextUri?: string | null,
   options: StartOptions = {}
@@ -325,7 +325,7 @@ export const startBetterShuffle = async (
     const upcoming = playableQueueUris.filter((uri) => uri !== seed.uri)
     sessionManager.setQueuedUris(upcoming)
     syncKnownQueue(upcoming)
-    const playbackContext = resolveBetterShufflePlaybackContext(contextUri, seed.albumUri)
+    const playbackContext = resolveSimilarShufflePlaybackContext(contextUri, seed.albumUri)
     await playSeedAndQueue(seed.uri, upcoming, playbackContext)
   } else {
     // Fallback: replace upcoming without touching playback
@@ -347,7 +347,7 @@ export const startBetterShuffle = async (
 }
 
 export const startFromContextMenu = async (seedUri: string, contextUri?: string | null) => {
-  await startBetterShuffle(seedUri, contextUri, {
+  await startSimilarShuffle(seedUri, contextUri, {
     forceRefreshPools: true,
     playSeed: true,
     replaceUpcoming: false,
@@ -357,11 +357,11 @@ export const startFromContextMenu = async (seedUri: string, contextUri?: string 
 export const reshuffleFromCurrentTrack = async () => {
   const uri = Spicetify.Player.data?.item?.uri
   if (!uri) {
-    throw new Error("Play a song first, then enable Better Shuffle")
+    throw new Error("Play a song first, then enable Similar Shuffle")
   }
 
   const playerContextUri = Spicetify.Player.data?.context?.uri ?? null
-  await startBetterShuffle(uri, playerContextUri, {
+  await startSimilarShuffle(uri, playerContextUri, {
     forceRefreshPools: true,
     playSeed: false,
     replaceUpcoming: true,
@@ -406,7 +406,7 @@ export const refillQueueIfNeeded = async () => {
     sessionManager.setQueuedUris(merged)
     syncKnownQueue(merged)
   } catch (error) {
-    console.error("[Better Shuffle] refill failed", error)
+    console.error("[Similar Shuffle] refill failed", error)
   } finally {
     sessionManager.setRefilling(false)
   }

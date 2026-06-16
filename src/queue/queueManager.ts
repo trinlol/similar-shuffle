@@ -97,8 +97,8 @@ export const resolvePlaybackContext = (
   return null
 }
 
-/** Better Shuffle must not keep playlist or artist context or Spotify injects tracks */
-export const resolveBetterShufflePlaybackContext = (
+/** Similar Shuffle must not keep playlist or artist context or Spotify injects tracks */
+export const resolveSimilarShufflePlaybackContext = (
   contextUri?: string | null,
   albumUri?: string | null
 ): PlaybackContext | null => {
@@ -131,7 +131,7 @@ export const detachFromPlaylistContext = async (albumUri?: string | null) => {
   const currentContextUri = Spicetify.Player.data?.context?.uri
   if (!isPlaylistContext(currentContextUri) && !isArtistContext(currentContextUri)) return
 
-  const fallback = resolveBetterShufflePlaybackContext(null, albumUri)
+  const fallback = resolveSimilarShufflePlaybackContext(null, albumUri)
   if (!fallback) return
 
   try {
@@ -141,7 +141,7 @@ export const detachFromPlaylistContext = async (albumUri?: string | null) => {
       url: fallback.url,
     })
   } catch (error) {
-    console.warn("[Better Shuffle] Could not switch away from playlist context", error)
+    console.warn("[Similar Shuffle] Could not switch away from playlist context", error)
   }
 }
 
@@ -221,7 +221,7 @@ const setQueueSafe = async (uris: string[], resetPrevTracks = false): Promise<bo
     })
     return true
   } catch (error) {
-    console.warn("[Better Shuffle] setQueue failed", error)
+    console.warn("[Similar Shuffle] setQueue failed", error)
     return false
   }
 }

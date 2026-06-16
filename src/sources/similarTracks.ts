@@ -1,5 +1,5 @@
 import type { SeedMetadata, TrackCandidate } from "../session/types"
-import type { BetterShuffleSettings } from "../storage/settings"
+import type { SimilarShuffleSettings } from "../storage/settings"
 import { dedupeCandidates, excludeArtist } from "../algorithm/filters"
 import { candidateFromUri, enrichCandidatesFromSearch } from "./trackMetadata"
 import { getMarket } from "../utils/playability"
@@ -84,7 +84,7 @@ const searchTracks = async (query: string, limit = 50): Promise<TrackCandidate[]
   return enrichCandidatesFromSearch(response?.tracks?.items ?? [])
 }
 
-const buildEraQuery = (seed: SeedMetadata, settings: BetterShuffleSettings): string | null => {
+const buildEraQuery = (seed: SeedMetadata, settings: SimilarShuffleSettings): string | null => {
   if (seed.releaseYear == null) return null
   const start = Math.max(1900, seed.releaseYear - settings.eraWindow)
   const end = seed.releaseYear + settings.eraWindow
@@ -93,7 +93,7 @@ const buildEraQuery = (seed: SeedMetadata, settings: BetterShuffleSettings): str
 
 const fetchGenreEraCandidates = async (
   seed: SeedMetadata,
-  settings: BetterShuffleSettings
+  settings: SimilarShuffleSettings
 ): Promise<TrackCandidate[]> => {
   const eraQuery = buildEraQuery(seed, settings)
   const genre = seed.genres[0]
@@ -109,7 +109,7 @@ const fetchGenreEraCandidates = async (
 
 const fetchEraOnlyCandidates = async (
   seed: SeedMetadata,
-  settings: BetterShuffleSettings
+  settings: SimilarShuffleSettings
 ): Promise<TrackCandidate[]> => {
   const eraQuery = buildEraQuery(seed, settings)
   if (!eraQuery) return []
@@ -187,14 +187,14 @@ const fetchAudioFeatures = async (trackId: string): Promise<{ tempo?: number; en
       valence: response?.valence,
     }
   } catch (error) {
-    console.warn("[Better Shuffle] Failed to fetch audio features", error)
+    console.warn("[Similar Shuffle] Failed to fetch audio features", error)
     return null
   }
 }
 
 const fetchRecommendations = async (
   seed: SeedMetadata,
-  settings: BetterShuffleSettings,
+  settings: SimilarShuffleSettings,
   limit = 50
 ): Promise<TrackCandidate[]> => {
   try {
@@ -230,14 +230,14 @@ const fetchRecommendations = async (
     const response = await Spicetify.CosmosAsync.get(url)
     return enrichCandidatesFromSearch(response?.tracks ?? [])
   } catch (error) {
-    console.warn("[Better Shuffle] v1/recommendations failed", error)
+    console.warn("[Similar Shuffle] v1/recommendations failed", error)
     return []
   }
 }
 
 export const fetchSimilarPool = async (
   seed: SeedMetadata,
-  settings: BetterShuffleSettings
+  settings: SimilarShuffleSettings
 ): Promise<TrackCandidate[]> => {
   const results = await Promise.allSettled([
     fetchRecommendations(seed, settings, 50),
@@ -273,7 +273,7 @@ export const fetchSimilarPool = async (
 
 export const fetchPlaylistRecommendations = async (
   seeds: TrackCandidate[],
-  settings: BetterShuffleSettings,
+  settings: SimilarShuffleSettings,
   limit = 50
 ): Promise<TrackCandidate[]> => {
   try {
@@ -309,7 +309,7 @@ export const fetchPlaylistRecommendations = async (
     const response = await Spicetify.CosmosAsync.get(url)
     return enrichCandidatesFromSearch(response?.tracks ?? [])
   } catch (error) {
-    console.warn("[Better Shuffle] Failed to fetch playlist recommendations", error)
+    console.warn("[Similar Shuffle] Failed to fetch playlist recommendations", error)
     return []
   }
 }
@@ -324,7 +324,7 @@ export const fetchPlaylistRecommendations = async (
  */
 export const fetchPlaylistSimilarPool = async (
   playlistTracks: TrackCandidate[],
-  settings: BetterShuffleSettings,
+  settings: SimilarShuffleSettings,
   seedCount = 3
 ): Promise<TrackCandidate[]> => {
   if (playlistTracks.length === 0) return []
@@ -365,7 +365,7 @@ export const fetchPlaylistSimilarPool = async (
     .filter((c) => !playlistUriSet.has(c.uri))
 
   console.info(
-    `[Better Shuffle] Playlist similar pool: ${deduped.length} candidates from ${seedMetadatas.length} seeds`
+    `[Similar Shuffle] Playlist similar pool: ${deduped.length} candidates from ${seedMetadatas.length} seeds`
   )
 
   return deduped
