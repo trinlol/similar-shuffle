@@ -1,6 +1,7 @@
 import type { TrackCandidate } from "../session/types"
 import { loadPlayHistory } from "../storage/settings"
 import { pickWeightedRandom, popularityWeight } from "./shuffle"
+import { sessionManager } from "../session/SessionManager"
 
 export const dedupeCandidates = (candidates: TrackCandidate[]): TrackCandidate[] => {
   const seen = new Set<string>()
@@ -166,7 +167,8 @@ export type PickFromPoolOptions = {
   recentKeys: RecentKeys
   artistSpacing: number
   albumSpacing: number
-  favorObscure: boolean
+  discoveryMode: "popular" | "balanced" | "discovery" | "deepcuts"
+  excludeTopTracks: boolean
   historyWeights?: Map<string, number>
   seedYear?: number
   eraWindow?: number
@@ -181,7 +183,7 @@ export const pickFromPool = (
   pool: TrackCandidate[],
   options: PickFromPoolOptions
 ): TrackCandidate | null => {
-  const { recentKeys, artistSpacing, albumSpacing, favorObscure, historyWeights, seedYear, eraWindow } = options
+  const { recentKeys, artistSpacing, albumSpacing, discoveryMode, excludeTopTracks, historyWeights, seedYear, eraWindow } = options
 
   // Filter for spacing — prefer candidates that respect both artist and album spacing
   const eligible = pool.filter(
@@ -198,9 +200,11 @@ export const pickFromPool = (
 
   if (pickPool.length === 0) return null
 
+  const blacklistSet = new Set(excludeTopTracks ? sessionManager.getTopTracksBlacklist() : [])
+
   // Build composite weights
   const weights = pickPool.map((candidate) => {
-    let weight = popularityWeight(candidate.popularity ?? 50, favorObscure)
+    let weight = popularityWeight(candidate.popularity ?? 50, discoveryMode)
 
     // Graduated history penalty
     if (historyWeights) {
@@ -210,6 +214,11 @@ export const pickFromPool = (
     // Era affinity bonus
     if (seedYear != null && eraWindow != null) {
       weight *= eraAffinityWeight(candidate, seedYear, eraWindow)
+    }
+
+    // Exclude/penalize user's personal top/overplayed tracks
+    if (blacklistSet.has(candidate.uri)) {
+      weight *= 0.02 // 98% penalty
     }
 
     return Math.max(0.01, weight)

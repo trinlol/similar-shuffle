@@ -176,7 +176,8 @@ const buildSettingsDom = (): HTMLElement => {
     refillThreshold: HTMLInputElement
     initialQueueSize: HTMLInputElement
     historyPenaltyWindow: HTMLInputElement
-    deprioritizePopular: HTMLInputElement
+    discoveryMode: HTMLSelectElement
+    excludeTopTracks: HTMLInputElement
     excludeSeedArtistEarly: HTMLInputElement
     matchTempo: HTMLInputElement
     matchEnergy: HTMLInputElement
@@ -193,7 +194,8 @@ const buildSettingsDom = (): HTMLElement => {
     inputs.refillThreshold.value = String(next.refillThreshold)
     inputs.initialQueueSize.value = String(next.initialQueueSize)
     inputs.historyPenaltyWindow.value = String(next.historyPenaltyWindow)
-    inputs.deprioritizePopular.checked = next.deprioritizePopular
+    inputs.discoveryMode.value = next.discoveryMode
+    inputs.excludeTopTracks.checked = next.excludeTopTracks
     inputs.excludeSeedArtistEarly.checked = next.excludeSeedArtistEarly
     inputs.matchTempo.checked = next.matchTempo
     inputs.matchEnergy.checked = next.matchEnergy
@@ -204,6 +206,9 @@ const buildSettingsDom = (): HTMLElement => {
   }
 
   const persist = (patch: Partial<ShuffleSimilarSettings>) => {
+    if (patch.discoveryMode !== undefined) {
+      patch.deprioritizePopular = patch.discoveryMode !== "popular"
+    }
     const next = { ...settings, ...patch }
     saveSettings(next)
     applyToInputs(next)
@@ -291,12 +296,25 @@ const buildSettingsDom = (): HTMLElement => {
   )
   inputs.historyPenaltyWindow = historyField.input
 
-  const popularField = createCheckboxField(
-    "Prefer less-played library tracks",
-    settings.deprioritizePopular,
-    (deprioritizePopular) => persist({ deprioritizePopular })
+  const discoveryModeField = createSelectField(
+    "Discovery depth mode",
+    settings.discoveryMode,
+    [
+      { value: "popular", label: "Popular (Familiar / Mainstream)" },
+      { value: "balanced", label: "Balanced (Subtle gems & hits)" },
+      { value: "discovery", label: "Discovery (Lesser-known tracks & deep cuts)" },
+      { value: "deepcuts", label: "Deep Cuts (Highly obscure / niche only)" },
+    ],
+    (discoveryMode) => persist({ discoveryMode })
   )
-  inputs.deprioritizePopular = popularField.input
+  inputs.discoveryMode = discoveryModeField.select
+
+  const excludeTopTracksField = createCheckboxField(
+    "Exclude/penalize your top played tracks",
+    settings.excludeTopTracks,
+    (excludeTopTracks) => persist({ excludeTopTracks })
+  )
+  inputs.excludeTopTracks = excludeTopTracksField.input
 
   const excludeField = createCheckboxField(
     "Exclude seed artist early",
@@ -348,7 +366,8 @@ const buildSettingsDom = (): HTMLElement => {
     refillField.row,
     batchField.row,
     historyField.row,
-    popularField.row,
+    discoveryModeField.row,
+    excludeTopTracksField.row,
     excludeField.row,
     tempoField.row,
     energyField.row,

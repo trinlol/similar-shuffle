@@ -26,6 +26,8 @@
     excludeSeedArtistEarly: true,
     historyPenaltyWindow: 200,
     deprioritizePopular: true,
+    discoveryMode: "discovery",
+    excludeTopTracks: true,
     matchTempo: true,
     matchEnergy: true,
     matchValence: true,
@@ -66,11 +68,15 @@
       const raw = Spicetify.LocalStorage.get(STORAGE_KEY);
       if (!raw) return { ...DEFAULT_SETTINGS, blendPhases: [...DEFAULT_BLEND_PHASES] };
       const parsed = JSON.parse(raw);
-      return {
+      const loaded = {
         ...DEFAULT_SETTINGS,
         ...parsed,
         blendPhases: parsed.blendPhases ?? [...DEFAULT_BLEND_PHASES]
       };
+      if (parsed.discoveryMode === void 0 && parsed.deprioritizePopular !== void 0) {
+        loaded.discoveryMode = parsed.deprioritizePopular ? "discovery" : "popular";
+      }
+      return loaded;
     } catch {
       return { ...DEFAULT_SETTINGS, blendPhases: [...DEFAULT_BLEND_PHASES] };
     }
@@ -133,11 +139,151 @@
     indexed.sort((a, b) => a.sortKey - b.sortKey);
     return indexed.map((entry) => entry.item);
   };
-  var popularityWeight = (popularity, favorObscure, steepness = 2.5) => {
+  var popularityWeight = (popularity, favorObscureOrMode, steepness = 2.5) => {
     const pop = Math.max(0, Math.min(100, popularity ?? 50));
-    if (!favorObscure) return 1;
+    let mode;
+    if (typeof favorObscureOrMode === "boolean") {
+      mode = favorObscureOrMode ? "discovery" : "popular";
+    } else {
+      mode = favorObscureOrMode;
+    }
+    if (mode === "popular") return 1;
+    let maxPop = 100;
+    let weightPower = 1;
+    if (mode === "balanced") {
+      maxPop = 80;
+      weightPower = 1.2;
+    } else if (mode === "discovery") {
+      maxPop = 65;
+      weightPower = 2;
+    } else if (mode === "deepcuts") {
+      maxPop = 45;
+      weightPower = 3.5;
+    }
+    if (pop > maxPop) {
+      return 0.05;
+    }
     const normalized = 1 - pop / 100;
-    return Math.pow(normalized, 1) * steepness + 0.3;
+    return Math.pow(normalized, weightPower) * steepness + 0.1;
+  };
+
+  // src/session/SessionManager.ts
+  var state = {
+    active: false,
+    toggleEnabled: false,
+    seed: null,
+    playedUris: [],
+    queuedUris: [],
+    position: 0,
+    similarPool: [],
+    profilePool: [],
+    isRefilling: false,
+    playlistUri: null,
+    playlistTracks: [],
+    topTracksBlacklist: [],
+    artistUri: null,
+    artistTracks: []
+  };
+  var sessionManager = {
+    isActive: () => state.active,
+    isToggleEnabled: () => state.toggleEnabled,
+    setToggleEnabled: (enabled) => {
+      state.toggleEnabled = enabled;
+    },
+    getSeed: () => state.seed,
+    getPosition: () => state.position,
+    getPlayedUris: () => [...state.playedUris],
+    getQueuedUris: () => [...state.queuedUris],
+    getSimilarPool: () => state.similarPool,
+    getProfilePool: () => state.profilePool,
+    setPools: (similar, profile) => {
+      state.similarPool = similar;
+      state.profilePool = profile;
+    },
+    isRefilling: () => state.isRefilling,
+    setRefilling: (value) => {
+      state.isRefilling = value;
+    },
+    isPlaylistSession: () => Boolean(state.playlistUri),
+    getPlaylistTracks: () => state.playlistTracks,
+    getTopTracksBlacklist: () => state.topTracksBlacklist,
+    isArtistSession: () => Boolean(state.artistUri),
+    getArtistTracks: () => state.artistTracks,
+    startSession: (seed, topTracks = [], recentTracks = []) => {
+      state.active = true;
+      state.seed = seed;
+      state.playedUris = [seed.uri, ...recentTracks.filter((uri) => uri !== seed.uri)];
+      state.queuedUris = [];
+      state.position = 0;
+      state.similarPool = [];
+      state.profilePool = [];
+      state.playlistUri = null;
+      state.playlistTracks = [];
+      state.topTracksBlacklist = topTracks;
+      state.artistUri = null;
+      state.artistTracks = [];
+    },
+    startPlaylistSession: (seed, playlistUri, playlistTracks, topTracks, recentTracks = []) => {
+      state.active = true;
+      state.seed = seed;
+      state.playedUris = [seed.uri, ...recentTracks.filter((uri) => uri !== seed.uri)];
+      state.queuedUris = [];
+      state.position = 0;
+      state.similarPool = [];
+      state.profilePool = [];
+      state.playlistUri = playlistUri;
+      state.playlistTracks = playlistTracks;
+      state.topTracksBlacklist = topTracks;
+      state.artistUri = null;
+      state.artistTracks = [];
+    },
+    startArtistSession: (seed, artistUri, artistTracks, topTracks = [], recentTracks = []) => {
+      state.active = true;
+      state.seed = seed;
+      state.playedUris = [seed.uri, ...recentTracks.filter((uri) => uri !== seed.uri)];
+      state.queuedUris = [];
+      state.position = 0;
+      state.similarPool = [];
+      state.profilePool = [];
+      state.playlistUri = null;
+      state.playlistTracks = [];
+      state.topTracksBlacklist = topTracks;
+      state.artistUri = artistUri;
+      state.artistTracks = artistTracks;
+    },
+    endSession: () => {
+      state.active = false;
+      state.seed = null;
+      state.playedUris = [];
+      state.queuedUris = [];
+      state.position = 0;
+      state.similarPool = [];
+      state.profilePool = [];
+      state.isRefilling = false;
+      state.playlistUri = null;
+      state.playlistTracks = [];
+      state.topTracksBlacklist = [];
+      state.artistUri = null;
+      state.artistTracks = [];
+    },
+    recordTrackPlayed: (uri) => {
+      if (!uri || uri === "spotify:delimiter") return;
+      if (!state.playedUris.includes(uri)) {
+        state.playedUris.push(uri);
+      }
+      state.position += 1;
+      state.queuedUris = state.queuedUris.filter((queuedUri) => queuedUri !== uri);
+      const settings = loadSettings();
+      appendPlayHistory(uri, settings.historyPenaltyWindow);
+    },
+    setQueuedUris: (uris) => {
+      state.queuedUris = uris.filter((uri) => uri !== "spotify:delimiter");
+    },
+    ownsQueueTrack: (uri) => {
+      if (!state.active) return false;
+      if (state.seed?.uri === uri) return true;
+      return state.queuedUris.includes(uri) || state.playedUris.includes(uri);
+    }
   };
 
   // src/algorithm/filters.ts
@@ -207,20 +353,24 @@
     return 1;
   };
   var pickFromPool = (pool, options) => {
-    const { recentKeys, artistSpacing, albumSpacing, favorObscure, historyWeights, seedYear, eraWindow } = options;
+    const { recentKeys, artistSpacing, albumSpacing, discoveryMode, excludeTopTracks, historyWeights, seedYear, eraWindow } = options;
     const eligible = pool.filter(
       (candidate) => respectsArtistSpacing(candidate, recentKeys.artists, artistSpacing) && respectsAlbumSpacing(candidate, recentKeys.albums, albumSpacing)
     );
     const artistOnly = eligible.length > 0 ? eligible : pool.filter((candidate) => respectsArtistSpacing(candidate, recentKeys.artists, artistSpacing));
     const pickPool = artistOnly.length > 0 ? artistOnly : pool;
     if (pickPool.length === 0) return null;
+    const blacklistSet = new Set(excludeTopTracks ? sessionManager.getTopTracksBlacklist() : []);
     const weights = pickPool.map((candidate) => {
-      let weight = popularityWeight(candidate.popularity ?? 50, favorObscure);
+      let weight = popularityWeight(candidate.popularity ?? 50, discoveryMode);
       if (historyWeights) {
         weight *= historyWeights.get(candidate.uri) ?? 1;
       }
       if (seedYear != null && eraWindow != null) {
         weight *= eraAffinityWeight(candidate, seedYear, eraWindow);
+      }
+      if (blacklistSet.has(candidate.uri)) {
+        weight *= 0.02;
       }
       return Math.max(0.01, weight);
     });
@@ -275,7 +425,8 @@
         recentKeys,
         artistSpacing: settings.artistSpacing,
         albumSpacing,
-        favorObscure,
+        discoveryMode: settings.discoveryMode,
+        excludeTopTracks: settings.excludeTopTracks,
         historyWeights,
         seedYear: seed.releaseYear,
         eraWindow: settings.eraWindow
@@ -318,7 +469,8 @@
         recentKeys,
         artistSpacing: settings.artistSpacing,
         albumSpacing,
-        favorObscure,
+        discoveryMode: settings.discoveryMode,
+        excludeTopTracks: settings.excludeTopTracks,
         historyWeights,
         seedYear: seed?.releaseYear,
         eraWindow: settings.eraWindow
@@ -328,7 +480,8 @@
           recentKeys: { artists: [], albums: [] },
           artistSpacing: 0,
           albumSpacing: 0,
-          favorObscure,
+          discoveryMode: settings.discoveryMode,
+          excludeTopTracks: settings.excludeTopTracks,
           historyWeights,
           seedYear: seed?.releaseYear,
           eraWindow: settings.eraWindow
@@ -346,125 +499,6 @@
       }
     }
     return softShuffle(selected, 3);
-  };
-
-  // src/session/SessionManager.ts
-  var state = {
-    active: false,
-    toggleEnabled: false,
-    seed: null,
-    playedUris: [],
-    queuedUris: [],
-    position: 0,
-    similarPool: [],
-    profilePool: [],
-    isRefilling: false,
-    playlistUri: null,
-    playlistTracks: [],
-    topTracksBlacklist: [],
-    artistUri: null,
-    artistTracks: []
-  };
-  var sessionManager = {
-    isActive: () => state.active,
-    isToggleEnabled: () => state.toggleEnabled,
-    setToggleEnabled: (enabled) => {
-      state.toggleEnabled = enabled;
-    },
-    getSeed: () => state.seed,
-    getPosition: () => state.position,
-    getPlayedUris: () => [...state.playedUris],
-    getQueuedUris: () => [...state.queuedUris],
-    getSimilarPool: () => state.similarPool,
-    getProfilePool: () => state.profilePool,
-    setPools: (similar, profile) => {
-      state.similarPool = similar;
-      state.profilePool = profile;
-    },
-    isRefilling: () => state.isRefilling,
-    setRefilling: (value) => {
-      state.isRefilling = value;
-    },
-    isPlaylistSession: () => Boolean(state.playlistUri),
-    getPlaylistTracks: () => state.playlistTracks,
-    getTopTracksBlacklist: () => state.topTracksBlacklist,
-    isArtistSession: () => Boolean(state.artistUri),
-    getArtistTracks: () => state.artistTracks,
-    startSession: (seed) => {
-      state.active = true;
-      state.seed = seed;
-      state.playedUris = [seed.uri];
-      state.queuedUris = [];
-      state.position = 0;
-      state.similarPool = [];
-      state.profilePool = [];
-      state.playlistUri = null;
-      state.playlistTracks = [];
-      state.topTracksBlacklist = [];
-      state.artistUri = null;
-      state.artistTracks = [];
-    },
-    startPlaylistSession: (seed, playlistUri, playlistTracks, topTracks) => {
-      state.active = true;
-      state.seed = seed;
-      state.playedUris = [seed.uri];
-      state.queuedUris = [];
-      state.position = 0;
-      state.similarPool = [];
-      state.profilePool = [];
-      state.playlistUri = playlistUri;
-      state.playlistTracks = playlistTracks;
-      state.topTracksBlacklist = topTracks;
-      state.artistUri = null;
-      state.artistTracks = [];
-    },
-    startArtistSession: (seed, artistUri, artistTracks) => {
-      state.active = true;
-      state.seed = seed;
-      state.playedUris = [seed.uri];
-      state.queuedUris = [];
-      state.position = 0;
-      state.similarPool = [];
-      state.profilePool = [];
-      state.playlistUri = null;
-      state.playlistTracks = [];
-      state.topTracksBlacklist = [];
-      state.artistUri = artistUri;
-      state.artistTracks = artistTracks;
-    },
-    endSession: () => {
-      state.active = false;
-      state.seed = null;
-      state.playedUris = [];
-      state.queuedUris = [];
-      state.position = 0;
-      state.similarPool = [];
-      state.profilePool = [];
-      state.isRefilling = false;
-      state.playlistUri = null;
-      state.playlistTracks = [];
-      state.topTracksBlacklist = [];
-      state.artistUri = null;
-      state.artistTracks = [];
-    },
-    recordTrackPlayed: (uri) => {
-      if (!uri || uri === "spotify:delimiter") return;
-      if (!state.playedUris.includes(uri)) {
-        state.playedUris.push(uri);
-      }
-      state.position += 1;
-      state.queuedUris = state.queuedUris.filter((queuedUri) => queuedUri !== uri);
-      const settings = loadSettings();
-      appendPlayHistory(uri, settings.historyPenaltyWindow);
-    },
-    setQueuedUris: (uris) => {
-      state.queuedUris = uris.filter((uri) => uri !== "spotify:delimiter");
-    },
-    ownsQueueTrack: (uri) => {
-      if (!state.active) return false;
-      if (state.seed?.uri === uri) return true;
-      return state.queuedUris.includes(uri) || state.playedUris.includes(uri);
-    }
   };
 
   // src/utils/uri.ts
@@ -844,6 +878,23 @@
         return firstUri;
     }
   };
+  var fetchRecentlyPlayedTracks = async () => {
+    const recentTracks = [];
+    try {
+      const res = await Spicetify.CosmosAsync.get(
+        "https://api.spotify.com/v1/me/player/recently-played?limit=50"
+      );
+      const items = res?.items ?? [];
+      for (const item of items) {
+        if (item?.track?.uri) {
+          recentTracks.push(item.track.uri);
+        }
+      }
+    } catch (error) {
+      console.warn("[Shuffle Similar] Failed to fetch recently played tracks", error);
+    }
+    return [...new Set(recentTracks)];
+  };
 
   // src/sources/similarTracks.ts
   var fetchPlaylistCandidates = async (playlistUri) => {
@@ -901,11 +952,22 @@
   };
   var searchTracks = async (query, limit = 50) => {
     const market = getMarket();
-    const offset = Math.floor(Math.random() * 150);
-    const response = await Spicetify.CosmosAsync.get(
-      `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=${limit}&offset=${offset}&market=${market}`
-    );
-    return enrichCandidatesFromSearch(response?.tracks?.items ?? []);
+    try {
+      const initialRes = await Spicetify.CosmosAsync.get(
+        `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1&market=${market}`
+      );
+      const total = initialRes?.tracks?.total ?? 0;
+      if (total === 0) return [];
+      const maxSafeOffset = Math.max(0, Math.min(total - limit, 150));
+      const offset = maxSafeOffset > 0 ? Math.floor(Math.random() * maxSafeOffset) : 0;
+      const response = await Spicetify.CosmosAsync.get(
+        `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=${limit}&offset=${offset}&market=${market}`
+      );
+      return enrichCandidatesFromSearch(response?.tracks?.items ?? []);
+    } catch (error) {
+      console.warn("[Shuffle Similar] searchTracks failed", error);
+      return [];
+    }
   };
   var buildEraQuery = (seed, settings) => {
     if (seed.releaseYear == null) return null;
@@ -1000,8 +1062,13 @@
       if (artistId) {
         url += `&seed_artists=${artistId}`;
       }
-      if (settings.deprioritizePopular) {
-        url += `&max_popularity=70`;
+      const mode = settings.discoveryMode ?? (settings.deprioritizePopular ? "discovery" : "popular");
+      if (mode === "balanced") {
+        url += `&max_popularity=80&target_popularity=60`;
+      } else if (mode === "discovery") {
+        url += `&max_popularity=65&target_popularity=45`;
+      } else if (mode === "deepcuts") {
+        url += `&max_popularity=45&target_popularity=25`;
       }
       const needsFeatures = settings.matchTempo || settings.matchEnergy || settings.matchValence;
       if (needsFeatures) {
@@ -1058,8 +1125,13 @@
       let url = `https://api.spotify.com/v1/recommendations?limit=${limit}&market=${market}&seed_tracks=${seedTrackIds.join(
         ","
       )}`;
-      if (settings.deprioritizePopular) {
-        url += `&max_popularity=70`;
+      const mode = settings.discoveryMode ?? (settings.deprioritizePopular ? "discovery" : "popular");
+      if (mode === "balanced") {
+        url += `&max_popularity=80&target_popularity=60`;
+      } else if (mode === "discovery") {
+        url += `&max_popularity=65&target_popularity=45`;
+      } else if (mode === "deepcuts") {
+        url += `&max_popularity=45&target_popularity=25`;
       }
       const needsFeatures = settings.matchTempo || settings.matchEnergy || settings.matchValence;
       if (needsFeatures) {
@@ -1842,22 +1914,26 @@
   };
   var startShuffleSimilar = async (seedUri, contextUri, options = {}) => {
     const seed = await fetchSeedMetadata(seedUri);
+    const settings = loadSettings();
+    const [topTracks, recentTracks] = await Promise.all([
+      settings.excludeTopTracks ? fetchTopTracks() : Promise.resolve([]),
+      fetchRecentlyPlayedTracks()
+    ]);
     if (contextUri && isPlaylistContext(contextUri)) {
       const playlistTracks = await fetchAllPlaylistTracks(contextUri);
-      const topTracks = await fetchTopTracks();
-      sessionManager.startPlaylistSession(seed, contextUri, playlistTracks, topTracks);
+      sessionManager.startPlaylistSession(seed, contextUri, playlistTracks, topTracks, recentTracks);
     } else if (contextUri && isAlbumContext(contextUri)) {
       const albumTracks = await fetchAlbumTracks(contextUri);
-      sessionManager.startPlaylistSession(seed, contextUri, albumTracks, []);
+      sessionManager.startPlaylistSession(seed, contextUri, albumTracks, topTracks, recentTracks);
     } else if (contextUri && isArtistContext(contextUri)) {
       const artistTracks = await fetchArtistDiscographyTracks(contextUri);
-      sessionManager.startArtistSession(seed, contextUri, artistTracks);
+      sessionManager.startArtistSession(seed, contextUri, artistTracks, topTracks, recentTracks);
     } else {
-      sessionManager.startSession(seed);
+      sessionManager.startSession(seed, topTracks, recentTracks);
     }
     enableAutoplayGuard();
     enforceNativeShuffleOff();
-    const { playableQueueUris, settings, similarCount } = await buildPlayableBatch(
+    const { playableQueueUris, settings: batchSettings, similarCount } = await buildPlayableBatch(
       seed,
       options.forceRefreshPools ?? true
     );
@@ -2185,7 +2261,8 @@
       inputs.refillThreshold.value = String(next.refillThreshold);
       inputs.initialQueueSize.value = String(next.initialQueueSize);
       inputs.historyPenaltyWindow.value = String(next.historyPenaltyWindow);
-      inputs.deprioritizePopular.checked = next.deprioritizePopular;
+      inputs.discoveryMode.value = next.discoveryMode;
+      inputs.excludeTopTracks.checked = next.excludeTopTracks;
       inputs.excludeSeedArtistEarly.checked = next.excludeSeedArtistEarly;
       inputs.matchTempo.checked = next.matchTempo;
       inputs.matchEnergy.checked = next.matchEnergy;
@@ -2195,6 +2272,9 @@
       inputs.artistShuffleMode.value = next.artistShuffleMode;
     };
     const persist = (patch) => {
+      if (patch.discoveryMode !== void 0) {
+        patch.deprioritizePopular = patch.discoveryMode !== "popular";
+      }
       const next = { ...settings, ...patch };
       saveSettings(next);
       applyToInputs(next);
@@ -2273,12 +2353,24 @@
       (historyPenaltyWindow) => persist({ historyPenaltyWindow })
     );
     inputs.historyPenaltyWindow = historyField.input;
-    const popularField = createCheckboxField(
-      "Prefer less-played library tracks",
-      settings.deprioritizePopular,
-      (deprioritizePopular) => persist({ deprioritizePopular })
+    const discoveryModeField = createSelectField(
+      "Discovery depth mode",
+      settings.discoveryMode,
+      [
+        { value: "popular", label: "Popular (Familiar / Mainstream)" },
+        { value: "balanced", label: "Balanced (Subtle gems & hits)" },
+        { value: "discovery", label: "Discovery (Lesser-known tracks & deep cuts)" },
+        { value: "deepcuts", label: "Deep Cuts (Highly obscure / niche only)" }
+      ],
+      (discoveryMode) => persist({ discoveryMode })
     );
-    inputs.deprioritizePopular = popularField.input;
+    inputs.discoveryMode = discoveryModeField.select;
+    const excludeTopTracksField = createCheckboxField(
+      "Exclude/penalize your top played tracks",
+      settings.excludeTopTracks,
+      (excludeTopTracks) => persist({ excludeTopTracks })
+    );
+    inputs.excludeTopTracks = excludeTopTracksField.input;
     const excludeField = createCheckboxField(
       "Exclude seed artist early",
       settings.excludeSeedArtistEarly,
@@ -2324,7 +2416,8 @@
       refillField.row,
       batchField.row,
       historyField.row,
-      popularField.row,
+      discoveryModeField.row,
+      excludeTopTracksField.row,
       excludeField.row,
       tempoField.row,
       energyField.row,

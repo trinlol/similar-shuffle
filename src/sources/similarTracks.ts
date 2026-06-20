@@ -77,11 +77,24 @@ const fetchRadioStationCandidates = async (seedUri: string): Promise<TrackCandid
 
 const searchTracks = async (query: string, limit = 50): Promise<TrackCandidate[]> => {
   const market = getMarket()
-  const offset = Math.floor(Math.random() * 150)
-  const response = await Spicetify.CosmosAsync.get(
-    `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=${limit}&offset=${offset}&market=${market}`
-  )
-  return enrichCandidatesFromSearch(response?.tracks?.items ?? [])
+  try {
+    const initialRes = await Spicetify.CosmosAsync.get(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1&market=${market}`
+    )
+    const total = initialRes?.tracks?.total ?? 0
+    if (total === 0) return []
+
+    const maxSafeOffset = Math.max(0, Math.min(total - limit, 150))
+    const offset = maxSafeOffset > 0 ? Math.floor(Math.random() * maxSafeOffset) : 0
+
+    const response = await Spicetify.CosmosAsync.get(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=${limit}&offset=${offset}&market=${market}`
+    )
+    return enrichCandidatesFromSearch(response?.tracks?.items ?? [])
+  } catch (error) {
+    console.warn("[Shuffle Similar] searchTracks failed", error)
+    return []
+  }
 }
 
 const buildEraQuery = (seed: SeedMetadata, settings: ShuffleSimilarSettings): string | null => {
@@ -207,8 +220,13 @@ const fetchRecommendations = async (
     if (artistId) {
       url += `&seed_artists=${artistId}`
     }
-    if (settings.deprioritizePopular) {
-      url += `&max_popularity=70`
+    const mode = settings.discoveryMode ?? (settings.deprioritizePopular ? "discovery" : "popular")
+    if (mode === "balanced") {
+      url += `&max_popularity=80&target_popularity=60`
+    } else if (mode === "discovery") {
+      url += `&max_popularity=65&target_popularity=45`
+    } else if (mode === "deepcuts") {
+      url += `&max_popularity=45&target_popularity=25`
     }
 
     const needsFeatures = settings.matchTempo || settings.matchEnergy || settings.matchValence
@@ -285,8 +303,13 @@ export const fetchPlaylistRecommendations = async (
       ","
     )}`
 
-    if (settings.deprioritizePopular) {
-      url += `&max_popularity=70`
+    const mode = settings.discoveryMode ?? (settings.deprioritizePopular ? "discovery" : "popular")
+    if (mode === "balanced") {
+      url += `&max_popularity=80&target_popularity=60`
+    } else if (mode === "discovery") {
+      url += `&max_popularity=65&target_popularity=45`
+    } else if (mode === "deepcuts") {
+      url += `&max_popularity=45&target_popularity=25`
     }
 
     const needsFeatures = settings.matchTempo || settings.matchEnergy || settings.matchValence

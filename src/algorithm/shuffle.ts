@@ -52,24 +52,48 @@ export const softShuffle = <T>(array: T[], jitter = 3): T[] => {
 
 /**
  * Converts raw Spotify popularity (0–100) into a smooth selection weight.
- * Lower popularity → higher weight when `favorObscure` is true.
+ * Lower popularity → higher weight when `discoveryMode` favors obscurity.
  * Uses an exponential curve so the transition is gradual rather than a
  * harsh linear inversion.
  *
  * @param popularity  Raw Spotify popularity score (0–100)
- * @param favorObscure  If true, obscure tracks get more weight
- * @param steepness  Controls how aggressively obscure tracks are favored (default 2.5)
+ * @param favorObscureOrMode  If true/string, obscure tracks get more weight
+ * @param steepness  Base controls how aggressively obscure tracks are favored (default 2.5)
  */
 export const popularityWeight = (
   popularity: number,
-  favorObscure: boolean,
+  favorObscureOrMode: boolean | "popular" | "balanced" | "discovery" | "deepcuts",
   steepness = 2.5
 ): number => {
   const pop = Math.max(0, Math.min(100, popularity ?? 50))
 
-  if (!favorObscure) return 1
+  let mode: "popular" | "balanced" | "discovery" | "deepcuts"
+  if (typeof favorObscureOrMode === "boolean") {
+    mode = favorObscureOrMode ? "discovery" : "popular"
+  } else {
+    mode = favorObscureOrMode
+  }
 
-  // Normalize to 0–1 range, invert, then apply exponential curve
+  if (mode === "popular") return 1.0
+
+  let maxPop = 100
+  let weightPower = 1.0
+
+  if (mode === "balanced") {
+    maxPop = 80
+    weightPower = 1.2
+  } else if (mode === "discovery") {
+    maxPop = 65
+    weightPower = 2.0
+  } else if (mode === "deepcuts") {
+    maxPop = 45
+    weightPower = 3.5
+  }
+
+  if (pop > maxPop) {
+    return 0.05
+  }
+
   const normalized = 1 - pop / 100
-  return Math.pow(normalized, 1) * steepness + 0.3
+  return Math.pow(normalized, weightPower) * steepness + 0.1
 }

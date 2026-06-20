@@ -289,3 +289,21 @@ export const pickSeedFromCollection = async (uris: string[]): Promise<string | n
       return firstUri
   }
 }
+
+export const fetchRecentlyPlayedTracks = async (): Promise<string[]> => {
+  const recentTracks: string[] = []
+  try {
+    const res = await Spicetify.CosmosAsync.get(
+      "https://api.spotify.com/v1/me/player/recently-played?limit=50"
+    )
+    const items = res?.items ?? []
+    for (const item of items) {
+      if (item?.track?.uri) {
+        recentTracks.push(item.track.uri)
+      }
+    }
+  } catch (error) {
+    console.warn("[Shuffle Similar] Failed to fetch recently played tracks", error)
+  }
+  return [...new Set(recentTracks)]
+}

@@ -61,17 +61,17 @@ export const sessionManager = {
   isArtistSession: () => Boolean(state.artistUri),
   getArtistTracks: () => state.artistTracks,
 
-  startSession: (seed: SeedMetadata) => {
+  startSession: (seed: SeedMetadata, topTracks: string[] = [], recentTracks: string[] = []) => {
     state.active = true
     state.seed = seed
-    state.playedUris = [seed.uri]
+    state.playedUris = [seed.uri, ...recentTracks.filter((uri) => uri !== seed.uri)]
     state.queuedUris = []
     state.position = 0
     state.similarPool = []
     state.profilePool = []
     state.playlistUri = null
     state.playlistTracks = []
-    state.topTracksBlacklist = []
+    state.topTracksBlacklist = topTracks
     state.artistUri = null
     state.artistTracks = []
   },
@@ -80,11 +80,12 @@ export const sessionManager = {
     seed: SeedMetadata,
     playlistUri: string,
     playlistTracks: TrackCandidate[],
-    topTracks: string[]
+    topTracks: string[],
+    recentTracks: string[] = []
   ) => {
     state.active = true
     state.seed = seed
-    state.playedUris = [seed.uri]
+    state.playedUris = [seed.uri, ...recentTracks.filter((uri) => uri !== seed.uri)]
     state.queuedUris = []
     state.position = 0
     state.similarPool = []
@@ -99,18 +100,20 @@ export const sessionManager = {
   startArtistSession: (
     seed: SeedMetadata,
     artistUri: string,
-    artistTracks: TrackCandidate[]
+    artistTracks: TrackCandidate[],
+    topTracks: string[] = [],
+    recentTracks: string[] = []
   ) => {
     state.active = true
     state.seed = seed
-    state.playedUris = [seed.uri]
+    state.playedUris = [seed.uri, ...recentTracks.filter((uri) => uri !== seed.uri)]
     state.queuedUris = []
     state.position = 0
     state.similarPool = []
     state.profilePool = []
     state.playlistUri = null
     state.playlistTracks = []
-    state.topTracksBlacklist = []
+    state.topTracksBlacklist = topTracks
     state.artistUri = artistUri
     state.artistTracks = artistTracks
   },

@@ -1,7 +1,7 @@
 import { buildTrackBatch, getBlendWeights, buildSinglePoolBatch } from "../algorithm/progressiveBlend"
 import { sessionManager } from "../session/SessionManager"
 import type { SeedMetadata, TrackCandidate } from "../session/types"
-import { fetchProfilePool, fetchAllPlaylistTracks, fetchTopTracks } from "../sources/profileTracks"
+import { fetchProfilePool, fetchAllPlaylistTracks, fetchTopTracks, fetchRecentlyPlayedTracks } from "../sources/profileTracks"
 import { fetchSimilarPool, fetchPlaylistRecommendations, fetchPlaylistSimilarPool } from "../sources/similarTracks"
 import { fetchSeedMetadata } from "../sources/trackMetadata"
 import { loadSettings, loadPlayHistory } from "../storage/settings"
@@ -286,23 +286,29 @@ export const startShuffleSimilar = async (
   options: StartOptions = {}
 ) => {
   const seed = await fetchSeedMetadata(seedUri)
+  const settings = loadSettings()
+
+  const [topTracks, recentTracks] = await Promise.all([
+    settings.excludeTopTracks ? fetchTopTracks() : Promise.resolve([]),
+    fetchRecentlyPlayedTracks(),
+  ])
+
   if (contextUri && isPlaylistContext(contextUri)) {
     const playlistTracks = await fetchAllPlaylistTracks(contextUri)
-    const topTracks = await fetchTopTracks()
-    sessionManager.startPlaylistSession(seed, contextUri, playlistTracks, topTracks)
+    sessionManager.startPlaylistSession(seed, contextUri, playlistTracks, topTracks, recentTracks)
   } else if (contextUri && isAlbumContext(contextUri)) {
     const albumTracks = await fetchAlbumTracks(contextUri)
-    sessionManager.startPlaylistSession(seed, contextUri, albumTracks, [])
+    sessionManager.startPlaylistSession(seed, contextUri, albumTracks, topTracks, recentTracks)
   } else if (contextUri && isArtistContext(contextUri)) {
     const artistTracks = await fetchArtistDiscographyTracks(contextUri)
-    sessionManager.startArtistSession(seed, contextUri, artistTracks)
+    sessionManager.startArtistSession(seed, contextUri, artistTracks, topTracks, recentTracks)
   } else {
-    sessionManager.startSession(seed)
+    sessionManager.startSession(seed, topTracks, recentTracks)
   }
   enableAutoplayGuard()
   enforceNativeShuffleOff()
 
-  const { playableQueueUris, settings, similarCount } = await buildPlayableBatch(
+  const { playableQueueUris, settings: batchSettings, similarCount } = await buildPlayableBatch(
     seed,
     options.forceRefreshPools ?? true
   )

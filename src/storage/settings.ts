@@ -8,6 +8,8 @@ export type ShuffleSimilarSettings = {
   excludeSeedArtistEarly: boolean
   historyPenaltyWindow: number
   deprioritizePopular: boolean
+  discoveryMode: "popular" | "balanced" | "discovery" | "deepcuts"
+  excludeTopTracks: boolean
   matchTempo: boolean
   matchEnergy: boolean
   matchValence: boolean
@@ -39,6 +41,8 @@ export const DEFAULT_SETTINGS: ShuffleSimilarSettings = {
   excludeSeedArtistEarly: true,
   historyPenaltyWindow: 200,
   deprioritizePopular: true,
+  discoveryMode: "discovery",
+  excludeTopTracks: true,
   matchTempo: true,
   matchEnergy: true,
   matchValence: true,
@@ -83,11 +87,16 @@ export const loadSettings = (): ShuffleSimilarSettings => {
     const raw = Spicetify.LocalStorage.get(STORAGE_KEY)
     if (!raw) return { ...DEFAULT_SETTINGS, blendPhases: [...DEFAULT_BLEND_PHASES] }
     const parsed = JSON.parse(raw) as Partial<ShuffleSimilarSettings>
-    return {
+    const loaded = {
       ...DEFAULT_SETTINGS,
       ...parsed,
       blendPhases: parsed.blendPhases ?? [...DEFAULT_BLEND_PHASES],
     }
+    // Migrate deprioritizePopular to discoveryMode if not explicitly set
+    if (parsed.discoveryMode === undefined && parsed.deprioritizePopular !== undefined) {
+      loaded.discoveryMode = parsed.deprioritizePopular ? "discovery" : "popular"
+    }
+    return loaded
   } catch {
     return { ...DEFAULT_SETTINGS, blendPhases: [...DEFAULT_BLEND_PHASES] }
   }
