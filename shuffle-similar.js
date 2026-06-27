@@ -102,11 +102,14 @@
   };
   var pickWeightedRandom = (items, weights) => {
     if (items.length === 0) return null;
-    const total = weights.reduce((sum, weight) => sum + weight, 0);
-    if (total <= 0) return pickRandom(items);
+    const cleanWeights = weights.map(
+      (w) => typeof w === "number" && !Number.isNaN(w) && w > 0 ? w : 0.01
+    );
+    const total = cleanWeights.reduce((sum, weight) => sum + weight, 0);
+    if (total <= 0 || Number.isNaN(total)) return pickRandom(items);
     let roll = Math.random() * total;
     for (let index = 0; index < items.length; index += 1) {
-      roll -= weights[index];
+      roll -= cleanWeights[index];
       if (roll <= 0) return items[index];
     }
     return items[items.length - 1];
@@ -121,7 +124,8 @@
     return indexed.map((entry) => entry.item);
   };
   var popularityWeight = (popularity, favorObscure, steepness = 2.5) => {
-    const pop = Math.max(0, Math.min(100, popularity ?? 50));
+    const popValue = typeof popularity === "number" && !Number.isNaN(popularity) ? popularity : 50;
+    const pop = Math.max(0, Math.min(100, popValue));
     if (!favorObscure) return 1;
     const normalized = 1 - pop / 100;
     return Math.pow(normalized, 1) * steepness + 0.3;

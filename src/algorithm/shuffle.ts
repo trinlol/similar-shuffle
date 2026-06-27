@@ -21,12 +21,18 @@ export const pickRandom = <T>(items: T[]): T | null => {
 
 export const pickWeightedRandom = <T>(items: T[], weights: number[]): T | null => {
   if (items.length === 0) return null
-  const total = weights.reduce((sum, weight) => sum + weight, 0)
-  if (total <= 0) return pickRandom(items)
+
+  // Sanitize weights to prevent NaN or invalid negative values
+  const cleanWeights = weights.map((w) =>
+    typeof w === "number" && !Number.isNaN(w) && w > 0 ? w : 0.01
+  )
+
+  const total = cleanWeights.reduce((sum, weight) => sum + weight, 0)
+  if (total <= 0 || Number.isNaN(total)) return pickRandom(items)
 
   let roll = Math.random() * total
   for (let index = 0; index < items.length; index += 1) {
-    roll -= weights[index]
+    roll -= cleanWeights[index]
     if (roll <= 0) return items[index]
   }
 
@@ -65,7 +71,8 @@ export const popularityWeight = (
   favorObscure: boolean,
   steepness = 2.5
 ): number => {
-  const pop = Math.max(0, Math.min(100, popularity ?? 50))
+  const popValue = typeof popularity === "number" && !Number.isNaN(popularity) ? popularity : 50
+  const pop = Math.max(0, Math.min(100, popValue))
 
   if (!favorObscure) return 1
 
