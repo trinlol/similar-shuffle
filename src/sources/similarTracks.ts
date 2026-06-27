@@ -5,6 +5,133 @@ import { candidateFromUri, enrichCandidatesFromSearch } from "./trackMetadata"
 import { getMarket } from "../utils/playability"
 import { getUriId } from "../utils/uri"
 
+const enrichAudioFeaturesAndMetadata = async (
+  candidates: TrackCandidate[]
+): Promise<TrackCandidate[]> => {
+  if (candidates.length === 0) return candidates
+
+  const ids = candidates.map((c) => getUriId(c.uri)).filter(Boolean)
+
+  // 1. Fetch audio features in chunks of 100
+  const featuresMap = new Map<string, { instrumentalness?: number }>()
+  const featurePromises: Array<Promise<void>> = []
+  const featureChunkSize = 100
+
+  for (let i = 0; i < ids.length; i += featureChunkSize) {
+    const chunkIds = ids.slice(i, i + featureChunkSize)
+    featurePromises.push(
+      (async () => {
+        try {
+          const res = await Spicetify.CosmosAsync.get(
+            `https://api.spotify.com/v1/audio-features?ids=${chunkIds.join(",")}`
+          )
+          const audioFeatures = res?.audio_features ?? []
+          for (const feat of audioFeatures) {
+            if (feat?.id) {
+              featuresMap.set(`spotify:track:${feat.id}`, {
+                instrumentalness: feat.instrumentalness,
+              })
+            }
+          }
+        } catch (error) {
+          console.warn("[Shuffle Similar] Failed to fetch audio features chunk", error)
+        }
+      })()
+    )
+  }
+
+  // 2. Fetch track metadata in chunks of 50 to fill in missing albumName/popularity/trackName
+  const metadataMap = new Map<string, { albumName?: string; trackName?: string; popularity?: number }>()
+  const metadataPromises: Array<Promise<void>> = []
+  const metadataChunkSize = 50
+
+  const needsMetadata = candidates.filter((c) => !c.albumName || !c.trackName || c.popularity === undefined)
+  const needsMetadataIds = needsMetadata.map((c) => getUriId(c.uri)).filter(Boolean)
+
+  for (let i = 0; i < needsMetadataIds.length; i += metadataChunkSize) {
+    const chunkIds = needsMetadataIds.slice(i, i + metadataChunkSize)
+    metadataPromises.push(
+      (async () => {
+        try {
+          const res = await Spicetify.CosmosAsync.get(
+            `https://api.spotify.com/v1/tracks?ids=${chunkIds.join(",")}`
+          )
+          const tracks = res?.tracks ?? []
+          for (const track of tracks) {
+            if (track?.id) {
+              metadataMap.set(`spotify:track:${track.id}`, {
+                albumName: track.album?.name,
+                trackName: track.name,
+                popularity: track.popularity,
+              })
+            }
+          }
+        } catch (error) {
+          console.warn("[Shuffle Similar] Failed to fetch track metadata chunk", error)
+        }
+      })()
+    )
+  }
+
+  // Wait for all requests to finish
+  await Promise.allSettled([...featurePromises, ...metadataPromises])
+
+  // Merge the fetched data back to candidates
+  return candidates.map((candidate) => {
+    const feat = featuresMap.get(candidate.uri)
+    const meta = metadataMap.get(candidate.uri)
+    return {
+      ...candidate,
+      instrumentalness: feat?.instrumentalness ?? candidate.instrumentalness,
+      albumName: meta?.albumName ?? candidate.albumName,
+      trackName: meta?.trackName ?? candidate.trackName,
+      popularity: meta?.popularity ?? candidate.popularity,
+    }
+  })
+}
+
+const filterInstrumentalsAndSoundtracks = (
+  candidates: TrackCandidate[],
+  isVocal: boolean,
+  isSoundtrack: boolean
+): TrackCandidate[] => {
+  return candidates.filter((candidate) => {
+    // 1. Vocal Tracks Protection:
+    if (isVocal && candidate.instrumentalness !== undefined && candidate.instrumentalness > 0.5) {
+      console.log(`[Shuffle Similar] Filtered out instrumental track: ${candidate.trackName} (instrumentalness: ${candidate.instrumentalness})`)
+      return false
+    }
+
+    // 2. Soundtrack Leakage Protection:
+    if (!isSoundtrack && candidate.albumName) {
+      const isCandidateSoundtrack =
+        /(Soundtrack|Score|OST|Original Motion Picture|Original Soundtrack|Broadway|Musical)/i.test(
+          candidate.albumName
+        )
+      
+      if (isCandidateSoundtrack) {
+        // Exception: Disney/movie vocal pop songs (which have low instrumentalness < 0.2 and high popularity >= 60)
+        const isDisneyOrVocalPopException =
+          isVocal &&
+          candidate.instrumentalness !== undefined &&
+          candidate.instrumentalness < 0.2 &&
+          candidate.popularity !== undefined &&
+          candidate.popularity >= 60
+
+        if (isDisneyOrVocalPopException) {
+          console.log(`[Shuffle Similar] Kept vocal soundtrack exception: ${candidate.trackName} (popularity: ${candidate.popularity})`)
+          return true
+        }
+
+        console.log(`[Shuffle Similar] Filtered out soundtrack leakage track: ${candidate.trackName} (album: ${candidate.albumName})`)
+        return false
+      }
+    }
+
+    return true
+  })
+}
+
 const fetchPlaylistCandidates = async (playlistUri: string): Promise<TrackCandidate[]> => {
   try {
     const playlistId = getUriId(playlistUri)
@@ -268,6 +395,26 @@ export const fetchSimilarPool = async (
     ])
   }
 
+  // 1. Batch enrich candidates with audio features and track metadata
+  candidates = await enrichAudioFeaturesAndMetadata(candidates)
+
+  // 2. Filter out instrumentals/soundtracks based on AGENTS.md rules
+  const isSeedSoundtrack =
+    (seed.albumName &&
+      /(Soundtrack|Score|OST|Original Motion Picture|Original Soundtrack|Broadway|Musical)/i.test(
+        seed.albumName
+      )) ||
+    seed.genres.some((genre) =>
+      /(soundtrack|score|orchestral|movie tunes|show tunes|broadway|musical)/i.test(genre)
+    )
+  const isSeedVocal = seed.instrumentalness === undefined || seed.instrumentalness < 0.2
+
+  console.info(
+    `[Shuffle Similar] Seed "${seed.trackName}" analysis: isSeedVocal = ${isSeedVocal}, isSeedSoundtrack = ${isSeedSoundtrack}`
+  )
+
+  candidates = filterInstrumentalsAndSoundtracks(candidates, isSeedVocal, isSeedSoundtrack)
+
   return candidates.filter((candidate) => candidate.uri !== seed.uri)
 }
 
@@ -360,9 +507,28 @@ export const fetchPlaylistSimilarPool = async (
   }
 
   // Deduplicate and exclude tracks that are in the original playlist
-  const deduped = dedupeCandidates(merged)
+  let deduped = dedupeCandidates(merged)
     .filter((c) => c.uri.startsWith("spotify:track:"))
     .filter((c) => !playlistUriSet.has(c.uri))
+
+  // 1. Batch enrich playlist candidates with audio features and track metadata
+  deduped = await enrichAudioFeaturesAndMetadata(deduped)
+
+  // 2. Check if the playlist seeds are vocal and if any is a soundtrack
+  const vocalCount = seedMetadatas.filter((s) => s.instrumentalness === undefined || s.instrumentalness < 0.2).length
+  const isPlaylistVocal = vocalCount >= seedMetadatas.length / 2
+
+  const isPlaylistSoundtrack = seedMetadatas.some((s) => {
+    const isSoundtrackAlbum = s.albumName && /(Soundtrack|Score|OST|Original Motion Picture|Original Soundtrack|Broadway|Musical)/i.test(s.albumName)
+    const isSoundtrackGenre = s.genres.some((g) => /(soundtrack|score|orchestral|movie tunes|show tunes|broadway|musical)/i.test(g))
+    return isSoundtrackAlbum || isSoundtrackGenre
+  })
+
+  console.info(
+    `[Shuffle Similar] Playlist analysis: isPlaylistVocal = ${isPlaylistVocal} (${vocalCount}/${seedMetadatas.length}), isPlaylistSoundtrack = ${isPlaylistSoundtrack}`
+  )
+
+  deduped = filterInstrumentalsAndSoundtracks(deduped, isPlaylistVocal, isPlaylistSoundtrack)
 
   console.info(
     `[Shuffle Similar] Playlist similar pool: ${deduped.length} candidates from ${seedMetadatas.length} seeds`
@@ -404,6 +570,24 @@ const buildSeedMetadataFromCandidate = async (candidate: TrackCandidate): Promis
     }
   }
 
+  // Fetch track metadata and features for playlist seed tracks too
+  let albumName = candidate.albumName
+  let instrumentalness = candidate.instrumentalness
+  try {
+    if (!albumName) {
+      const track = await Spicetify.CosmosAsync.get(
+        `https://api.spotify.com/v1/tracks/${trackId}?market=${getMarket()}`
+      )
+      albumName = track?.album?.name
+    }
+    const features = await Spicetify.CosmosAsync.get(
+      `https://api.spotify.com/v1/audio-features/${trackId}`
+    )
+    instrumentalness = features?.instrumentalness ?? undefined
+  } catch {
+    // ignore
+  }
+
   return {
     uri: candidate.uri,
     trackId,
@@ -411,8 +595,9 @@ const buildSeedMetadataFromCandidate = async (candidate: TrackCandidate): Promis
     artistName: candidate.artistName ?? "",
     artistUri: candidate.artistUri ?? "",
     albumUri: candidate.albumUri,
+    albumName,
     releaseYear: candidate.releaseYear,
     genres,
+    instrumentalness,
   }
 }
-
